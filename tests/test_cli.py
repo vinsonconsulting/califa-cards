@@ -81,3 +81,12 @@ def test_gate_high_still_fails_with_warn_flag(tmp_path):
     report.write_text(json.dumps({"risk_assessment": {"score": 60}}), encoding="utf-8")
     # The relaxation only covers MEDIUM; HIGH still fails.
     assert gate.main([str(report), "--warn-medium-without-card"]) == 1
+
+
+def test_gate_matches_finding_by_id():
+    # SkillSpector identifies findings by `id` (no `rule_id`); the card accepts by rule_id.
+    report = {"risk_assessment": {"score": 35}, "issues": [{"id": "E1", "severity": "MEDIUM"}]}
+    finding = {"rule_id": "E1", "status": "accepted", "note": "emitted, not called"}
+    assert gate.evaluate(report, {"scan": {"findings": [finding]}}).passed
+    # An un-recorded finding fails the MEDIUM band.
+    assert not gate.evaluate(report, {"scan": {"findings": []}}).passed

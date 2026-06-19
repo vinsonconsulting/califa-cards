@@ -99,7 +99,9 @@ def _severity(finding: dict[str, Any]) -> str:
 
 
 def _rule_id(finding: dict[str, Any]) -> str:
-    return str(finding.get("rule_id") or finding.get("ruleId") or "")
+    # SkillSpector's JSON report identifies each finding by ``id`` (e.g. "E1",
+    # "LP3"); ``rule_id``/``ruleId`` are accepted too for forward-compatibility.
+    return str(finding.get("rule_id") or finding.get("ruleId") or finding.get("id") or "")
 
 
 def _card_findings_index(card: dict[str, Any]) -> dict[str, dict[str, Any]]:
