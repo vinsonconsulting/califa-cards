@@ -1,0 +1,338 @@
+# Califa Cards: Unified Skill Card and Scorecard Standard
+
+Status: decisions locked 2026-06-18. This document is the normative standard.
+The pydantic model in `schema/schema.py` is the machine-enforceable form of
+section A and is the single source of truth where the prose and the code could
+ever disagree.
+
+## Responsibility split
+
+Califa Cards (this repo) owns the normative spec, the pydantic schema, the
+generator tooling, the security gate, the discover Worker, the CI templates,
+and the badge tooling. The two cabinets keep a per-skill `skill-card.md` plus
+its derived `card.json` next to each `SKILL.md`, and they consume Califa as a
+development dependency.
+
+Canonical format: `skill-card.md` (YAML frontmatter, the human view) is the
+source. `card.json` is derived from it 1:1 and is the machine view that the
+Worker indexes. One source, JSON derived.
+
+---
+
+## A. Merged field schema
+
+Notation: `[R]` required, `[O]` optional. Slugs are kebab-case and match the
+regex `^[a-z0-9]+(-[a-z0-9]+)*$`. Versions are semver (an absent patch is
+allowed so `card_version: 1.0` is valid).
+
+### A.1 Identity and provenance
+
+| Field | Req | Type | Notes |
+| --- | --- | --- | --- |
+| `name` | R | slug | Equals the SKILL.md name and the directory name. |
+| `version` | R | semver | Mirrors the SKILL.md version. |
+| `summary` | R | string | One sentence, distinct from the triggering `description`. |
+| `owner` | R | string | Handle or username. |
+| `repo` | R | object | `{tier: public \| private, url}`. |
+| `license` | R | SPDX string | For example MIT, Apache-2.0. |
+| `homepage` | O | URL | Optional link. |
+| `source_commit` | R | git SHA | The commit the card describes. |
+| `content_hash` | R | string | SHA256 over the sorted file manifest. |
+| `signature` | O | object | Path to `skill.oms.sig` plus a cert reference (v3+). |
+
+### A.2 Capability and behavior
+
+| Field | Req | Type | Notes |
+| --- | --- | --- | --- |
+| `description` | R | string | The exact SKILL.md triggering description, with negative triggers; this is what the Worker indexes. |
+| `triggers.positive` | R | array of strings | When to use the skill. Target 10 or more in production cards. |
+| `triggers.negative` | R | array | Each item is `{prompt, use_instead}` and names a sibling skill. Target 10 or more. |
+| `inputs` | O | array | Input parameters or types. |
+| `output.type` | R | string | For example Code, Markdown, JSON. |
+| `output.format` | R | string | For example "Markdown with Python code blocks". |
+| `dependencies` | R | array | Runtime libraries with versions, pip style. |
+| `external_endpoints` | R | array or `"none"` | Enables a host-allowlist policy. |
+| `permissions` | R | object | `{network, shell, file, env, mcp}`, each boolean, justified by the use case. |
+
+The schema enforces a minimum of one positive and one negative trigger so the
+worked example stays valid. The 10-or-more figure is the production target
+described in section D, not a hard schema constraint.
+
+### A.3 Quality scorecard
+
+| Field | Req | Type | Notes |
+| --- | --- | --- | --- |
+| `metrics.trigger_precision` | R | 0.0 to 1.0 | TP / (TP + FP), mean of three runs. |
+| `metrics.trigger_recall` | R | 0.0 to 1.0 | TP / (TP + FN), mean of three runs. |
+| `metrics.near_miss_precision` | O | 0.0 to 1.0 | Precision on `triggers.negative`. |
+| `metrics.task_completion_rate` | R | 0.0 to 1.0 | Graded pass over total functional tasks. |
+| `metrics.tool_call_delta` | O | float | Change versus the no-skill baseline. |
+| `metrics.token_efficiency` | O | float | Change versus the no-skill baseline. |
+| `metrics.eval_pass_rate` | R | 0.0 to 1.0 | Functional eval pass rate. |
+| `metrics.harness` | R | string | Format `skill-creator@<sha> / <model-id> / <date>`. |
+
+### A.4 Security
+
+| Field | Req | Type | Notes |
+| --- | --- | --- | --- |
+| `scan.tool` | R | string | Format `skillspector@<commit>`; pin the commit. |
+| `scan.score` | R | 0 to 100 | Bands in section E. |
+| `scan.severity` | R | enum | LOW, MEDIUM, HIGH, CRITICAL. |
+| `scan.date` | R | ISO date | Should be 30 days old or less at release. |
+| `scan.findings[]` | R | array | Each: `{rule_id, severity, status, owasp, atlas, note}`. |
+| `scan.sarif` | R | path | Relative path to the SARIF report. |
+
+Each finding: `status` is `resolved` or `accepted`. `owasp` carries the OWASP
+ASI code and may be null (see the resolved item below). `atlas` carries the
+MITRE ATLAS id and may be null. `note` justifies an accepted finding.
+
+### A.5 Lifecycle
+
+| Field | Req | Type | Notes |
+| --- | --- | --- | --- |
+| `status` | R | enum | draft, beta, stable, deprecated. |
+| `card_version` | R | semver | The card schema version, for example 1.0. |
+| `updated` | R | ISO date | Last update. |
+
+The `scan.date` freshness rule (30 days or less) is a release-time policy, not
+a schema validation, so that committed example cards do not expire.
+
+---
+
+## B. Worked example
+
+The reference card is the `textual` skill. The canonical source is
+[`examples/textual/skill-card.md`](examples/textual/skill-card.md) and its 1:1
+derivation is [`examples/textual/card.json`](examples/textual/card.json). Both
+validate against `schema/schema.py`; the test suite asserts they agree.
+
+The trilogy (ratatui, bubbletea, textual) shares reference filenames and eval
+ids, so cross-framework metric diffs become available once the harness writes
+each `card.json`.
+
+---
+
+## C. Generator (`skillcard/`)
+
+Execution chain:
+
+```
+apply best description -> skillspector scan -> skillcard build -> skillcard review -> make check -> commit and tag
+```
+
+Module responsibilities:
+
+| Module | Role | v0 status |
+| --- | --- | --- |
+| `discover.py` | Walk a skill directory into a context dict. | stub |
+| `build_card.py` | Assemble and validate against `schema.py`; refuse on missing or mistyped required fields; write `skill-card.md` plus `card.json`. | stub |
+| `render.py` | Jinja render of `card.json` to `skill-card.md` via `templates/skill-card.md.j2`. | stub |
+| `review.py` | Table of inferred versus human-authored fields; blocks merge until ticked. | stub |
+| `gate.py` | SARIF and JSON security policy enforcement. | functional |
+| `badges.py` | Map `card.json` to shields.io endpoint JSON per metric. | stub |
+| `cli.py` | The `skillcard` entrypoint: validate, gate, build, badges. | validate and gate functional |
+| `schema.py` (in `schema/`) | The pydantic model; single source of truth. | functional |
+
+The generator runs after the description optimizer, so `description` and the
+`metrics.trigger_*` values reflect the final optimized skill. The generator is
+built in-house; it does not fork the NVIDIA generator and does not extend
+skill-creator.
+
+---
+
+## D. Metrics computation
+
+The harness reuses skill-creator's tooling as a thin wrapper and captures its
+JSON output into `card.json`.
+
+- Triggering set: 10 or more positive and 10 or more negative examples drawn
+  from `triggers.*`, each negative naming a sibling skill.
+- Functional set: five to ten dossier tasks with assertion graders.
+
+Formulas:
+
+- `trigger_precision` = TP / (TP + FP); three runs per query, then the mean.
+- `trigger_recall` = TP / (TP + FN); three runs per query, then the mean.
+- `near_miss_precision` = 1 minus the over-trigger rate on `triggers.negative`.
+- `task_completion_rate` = graded pass over total functional tasks.
+- `tool_call_delta` and `token_efficiency` = change versus the no-skill
+  baseline.
+
+Re-run triggers: after each Claude model release, tracking deltas in a
+CHANGELOG next to the `SKILL.md`. Re-optimize the description if
+`trigger_recall` falls below about 0.7 or `task_completion_rate` regresses by
+more than 10 percent.
+
+---
+
+## E. Scan gate (`make check`)
+
+SkillSpector has no PyPI release. Install it with
+`pip install git+https://github.com/NVIDIA/SkillSpector` (Python 3.12 to 3.14).
+It emits SARIF 2.1.0 and covers a broad set of vulnerability patterns with an
+OSV dependency lookup plus an offline fallback.
+
+### Score model
+
+SkillSpector computes the 0 to 100 score as: CRITICAL +50, HIGH +25,
+MEDIUM +10, LOW +5 per finding, multiplied by 1.3 if the skill ships
+executable scripts, then capped at 100. Bands:
+
+| Score | Band |
+| --- | --- |
+| 0 to 20 | LOW |
+| 21 to 50 | MEDIUM |
+| 51 to 80 | HIGH |
+| 81 to 100 | CRITICAL |
+
+### Gate policy
+
+| Score band | Outcome | Override |
+| --- | --- | --- |
+| 0 to 20 (LOW) | PASS | none needed |
+| 21 to 50 (MEDIUM) | PASS only if every finding is `status: accepted` with a non-empty note on the card | no blank overrides |
+| 51 to 80 (HIGH) | hard FAIL | none |
+| 81 to 100 (CRITICAL) | hard FAIL | none |
+| any CRITICAL-severity finding | hard FAIL regardless of total score | none |
+
+Discipline: the gate does not blanket-reject `subprocess` or `shell` patterns.
+The rule is "declared and justified in the card note equals accepted", not
+"pattern present equals rejected". A Textual development skill legitimately runs
+`textual run` and `pytest`.
+
+Modes: the static pass (`--no-llm`) is deterministic and belongs in the
+blocking CI gate. The optional LLM semantic pass is non-deterministic, is for
+pre-release only, and is never the CI gate.
+
+### Where the gate reads the score (resolved)
+
+The 0 to 100 score is not present in SkillSpector's SARIF output. The SARIF
+result model is `{ruleId, message, level, locations}` only: no score, and a
+lossy `level` where CRITICAL and HIGH both map to `error`. The score and the
+exact per-finding severity live in SkillSpector's `--format json` report
+(`risk_assessment.score`). Therefore `skillcard/gate.py` reads the JSON report
+for its decision, and SARIF is produced separately for the GitHub code-scanning
+upload. The CI recipe (section below) keeps the SARIF upload; `make check`
+gates on the JSON.
+
+### CI recipe (OWASP, drop-in)
+
+```
+setup-python 3.12
+pip install git+https://github.com/NVIDIA/SkillSpector
+skillspector scan ./skills --no-llm --format sarif --output skillspector.sarif
+github/codeql-action/upload-sarif@v3   # needs permissions: security-events: write
+```
+
+See [`ci/skill-card-scan.yml`](ci/skill-card-scan.yml) for the reusable
+template. `make check` runs the JSON gate plus ruff and pytest.
+
+A note on self-scanning a framework repo: SkillSpector scans skills. Pointed at
+this repo's whole tree it reads the Jinja template's permission tokens and the
+pyproject's `requires-python` key as if they were a skill manifest and its
+dependencies, which are false positives. The framework's own `make check`
+therefore scans its shipping Python packages (`skillcard`, `schema`), which is
+the real risk surface; a cabinet scanning its `skills/` directory does not have
+this problem.
+
+---
+
+## F. Badges
+
+Source: CI-fed shields.io `endpoint` JSON per metric, served from Cloudflare
+Pages or R2. v1 uses static shields; v2 switches to endpoint badges.
+
+Badge set: `scan` (severity band), `trigger` (precision and recall), `tasks`
+(completion percent), `signed` (`hash+tag` or `oms`), `card` (card_version).
+
+`badges.py` maps `card.json` to `{schemaVersion: 1, label, message, color}`
+with one config dict for color thresholds. Shields requires every endpoint to
+return HTTP 200. Badges read directly from `card.json`; there is no second
+source of truth.
+
+---
+
+## G. Discover Worker contract
+
+The `card.json` is the index payload. Most skills stay uninstalled, so an agent
+queries for one to three relevant skills on demand and the always-loaded
+metadata stays small, which mitigates the roughly 50-skill ceiling.
+
+Storage: D1 for the catalog and structured filter, Vectorize for a semantic
+embedding of `summary + description + triggers.positive`, R2 for the full card
+and bundle. Not KV for the index.
+
+Endpoints:
+
+- `GET /discover?q=&tier=&max_scan=&k=` returns ranked minimal records with an
+  install hint.
+- `GET /card/<name>@<version>` returns the full card.
+- `POST /ingest` is CI-fed with a bearer token and revalidates against
+  `schema/schema.py`.
+- `GET /badge/<name>/<metric>.json` returns shields.io endpoint JSON.
+
+A tiny always-installed `discover` skill (about one slot) routes to the Worker.
+Private cards require the bearer token and are never embedded in the public
+Vectorize index. See [`worker/README.md`](worker/README.md).
+
+---
+
+## H. Phased roadmap
+
+### v1 (weeks 1 to 2)
+
+- Identity and provenance fields; `content_hash` over the sorted manifest.
+- Clean SkillSpector `--no-llm` pass gated in `make check`.
+- Hand-author cards for the top skills.
+- CI fails on HIGH or CRITICAL findings.
+- Flip threshold: if any skill scores HIGH on a non-overridable rule, fix the
+  skill before anything else.
+
+### v2 (weeks 3 to 6)
+
+- Ship the full `skillcard/` generator (discover, build_card, render, review,
+  gate, badges).
+- Wire the skill-creator metrics harness.
+- Stand up the discover Worker (D1, Vectorize, R2) plus the `discover` skill.
+- Switch to endpoint badges.
+- Build the Worker once the library crosses about 30 skills; do not wait for 50.
+
+### v3 (week 7+)
+
+- OMS Sigstore-keyless signing plus `model_signing verify` in CI.
+- Add the `signature` field to the schema.
+- Add a near-miss-precision merge gate.
+- Private-repo proprietary license plus per-client signing.
+
+---
+
+## Resolved items
+
+1. OWASP taxonomy for `scan.findings[].owasp`. SkillSpector emits OWASP ASI
+   codes (for example `ASI02`, "Agent Security Initiative, Tool and Plugin
+   Vulnerabilities") in each finding's tags, alongside MITRE ATLAS ids (for
+   example `AML.T0080`). The `AST1` to `AST8` codes are SkillSpector's own
+   behavioral-AST rule ids (exec, eval, subprocess, and so on), not an OWASP
+   taxonomy; they live in `rule_id`. Decision: `owasp` carries the ASI code and
+   is nullable (AST-only findings have no ASI mapping); `atlas` carries the
+   ATLAS id; `rule_id` carries the SkillSpector rule.
+
+2. SARIF score path. Resolved in section E: the score is not in SARIF; the gate
+   reads the JSON report.
+
+## Open items (for v2)
+
+- Harness script names (`run_loop.py` confirmed; `run_eval.py`,
+  `aggregate_benchmark.py`, `generate_review.py` to verify against the installed
+  skill-creator when wiring the harness wrapper).
+
+## Locked decisions (2026-06-18)
+
+- Canonical format: `skill-card.md` (YAML frontmatter) plus a 1:1 `card.json`.
+- Slug convention: kebab-case for the directory and `name`.
+- Generator: built in-house; do not fork NVIDIA's generator or extend
+  skill-creator.
+- Scanning: SkillSpector static pass (`--no-llm`, SARIF 2.1.0) gated in
+  `make check`.
+- Signing: deferred to v3; v1 and v2 integrity is `content_hash` plus a signed
+  git tag.

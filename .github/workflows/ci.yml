@@ -1,0 +1,30 @@
+# Live CI for califa-cards itself: lint + tests + the gated self-scan.
+#
+# This repo is private, so it does not push SARIF to GitHub code scanning
+# (that needs Advanced Security). The reusable, SARIF-uploading template that
+# the public cabinets copy lives at ci/skill-card-scan.yml.
+
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package with dev + scan extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev,scan]"
+      - name: make check (lint + tests + gated self-scan)
+        run: make check

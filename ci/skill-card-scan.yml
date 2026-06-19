@@ -1,0 +1,64 @@
+# Reusable skill-card scan + gate workflow (SPEC.md section E).
+#
+# A cabinet calls this from its own workflow:
+#
+#   jobs:
+#     cards:
+#       uses: vinsonconsulting/califa-cards/.github/workflows/skill-card-scan.yml@main
+#       with:
+#         scan-path: ./skills
+#
+# It runs the OWASP recipe (SkillSpector static pass -> SARIF -> upload to the
+# GitHub Security tab) and, when run inside this repo, the make-check gate.
+# To use it as a real reusable workflow, copy this file to
+# .github/workflows/skill-card-scan.yml.
+
+name: skill-card-scan
+
+on:
+  workflow_call:
+    inputs:
+      scan-path:
+        description: "Path SkillSpector scans"
+        type: string
+        default: "."
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install SkillSpector
+        run: pip install git+https://github.com/NVIDIA/SkillSpector
+      - name: SkillSpector static scan (SARIF)
+        run: skillspector scan ${{ inputs.scan-path || '.' }} --no-llm --format sarif --output skillspector.sarif
+      - name: Upload SARIF to code scanning
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: skillspector.sarif
+
+  check:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install package with dev + scan extras
+        run: pip install -e ".[dev,scan]"
+      - name: make check (lint + tests + gated self-scan)
+        run: make check

@@ -1,0 +1,71 @@
+{#-
+  Califa Cards human-view template (SPEC.md section C).
+  Renders a validated card.json into skill-card.md. The frontmatter block is
+  the canonical machine payload; the body below it is the rendered human view.
+  Wired to Jinja by skillcard/render.py in v2.
+-#}
+---
+name: {{ card.name }}
+version: "{{ card.version }}"
+card_version: "{{ card.card_version }}"
+summary: {{ card.summary }}
+owner: "{{ card.owner }}"
+repo: { tier: {{ card.repo.tier }}, url: {{ card.repo.url }} }
+license: {{ card.license }}
+source_commit: {{ card.source_commit }}
+content_hash: {{ card.content_hash }}
+status: {{ card.status }}
+updated: {{ card.updated }}
+description: >
+  {{ card.description | indent(2) }}
+triggers:
+  positive:
+{%- for p in card.triggers.positive %}
+    - {{ p }}
+{%- endfor %}
+  negative:
+{%- for n in card.triggers.negative %}
+    - { prompt: {{ n.prompt }}, use_instead: {{ n.use_instead }} }
+{%- endfor %}
+output: { type: {{ card.output.type }}, format: "{{ card.output.format }}" }
+dependencies: {{ card.dependencies }}
+external_endpoints: {{ card.external_endpoints }}
+permissions: { network: {{ card.permissions.network | lower }}, shell: {{ card.permissions.shell | lower }}, file: {{ card.permissions.file | lower }}, env: {{ card.permissions.env | lower }}, mcp: {{ card.permissions.mcp | lower }} }
+metrics:
+  trigger_precision: {{ card.metrics.trigger_precision }}
+  trigger_recall: {{ card.metrics.trigger_recall }}
+  task_completion_rate: {{ card.metrics.task_completion_rate }}
+  eval_pass_rate: {{ card.metrics.eval_pass_rate }}
+  harness: "{{ card.metrics.harness }}"
+scan:
+  tool: {{ card.scan.tool }}
+  score: {{ card.scan.score }}
+  severity: {{ card.scan.severity }}
+  date: {{ card.scan.date }}
+  sarif: {{ card.scan.sarif }}
+  findings:
+{%- for f in card.scan.findings %}
+    - { rule_id: {{ f.rule_id }}, severity: {{ f.severity }}, status: {{ f.status }}, owasp: {{ f.owasp }}, atlas: {{ f.atlas }}, note: "{{ f.note }}" }
+{%- endfor %}
+---
+
+# {{ card.name }} <small>v{{ card.version }}</small>
+
+{{ card.summary }}
+
+**Status:** {{ card.status }} | **License:** {{ card.license }} | **Scan:** {{ card.scan.severity }} ({{ card.scan.score }}/100)
+
+## When to use it
+
+{{ card.description }}
+
+## Quality scorecard
+
+| Metric | Value |
+| --- | --- |
+| Trigger precision | {{ card.metrics.trigger_precision }} |
+| Trigger recall | {{ card.metrics.trigger_recall }} |
+| Task completion | {{ card.metrics.task_completion_rate }} |
+| Eval pass rate | {{ card.metrics.eval_pass_rate }} |
+
+Harness: `{{ card.metrics.harness }}`
