@@ -91,3 +91,15 @@ def test_stable_card_without_metrics_rejected():
     data["status"] = "stable"
     with pytest.raises(ValidationError):
         SkillCard.model_validate(data)
+
+
+def test_metrics_notes_is_optional_and_roundtrips():
+    # The one additive v2 field: a nullable caveat home (e.g. the github-readme
+    # recall triage) so caveats live structurally instead of as body prose.
+    data = _valid_dict()
+    data["metrics"]["notes"] = "trigger_recall is a harness-floor artifact, not a capability signal"
+    card = SkillCard.model_validate(data)
+    assert card.metrics.notes == data["metrics"]["notes"]
+    # Absent → None, and not invented on dump.
+    data["metrics"].pop("notes")
+    assert SkillCard.model_validate(data).metrics.notes is None

@@ -25,27 +25,36 @@ from skillcard import gate
 from skillcard.hashing import content_hash
 
 
-def load_card_md(path: str) -> dict[str, Any]:
-    """Parse the YAML frontmatter of a skill-card.md into a dict.
+def parse_frontmatter(text: str) -> dict[str, Any]:
+    """Parse the leading YAML frontmatter of a skill-card.md *string* into a dict.
 
     Frontmatter is the block delimited by a leading ``---`` line and the next
-    ``---`` line. PyYAML is imported lazily so callers that only touch
-    card.json never need it installed.
+    ``---`` line. Shared by the file loader below and by ``build_card``'s
+    md/json agreement check. PyYAML is imported lazily so callers that only
+    touch card.json never need it installed.
     """
 
     import yaml  # noqa: PLC0415
 
-    text = Path(path).read_text(encoding="utf-8")
     if not text.startswith("---"):
-        raise ValueError(f"{path}: no YAML frontmatter (file does not start with '---')")
+        raise ValueError("no YAML frontmatter (text does not start with '---')")
     # Split into ['', frontmatter, body...]; the first chunk is empty.
     parts = text.split("\n---", 1)
     front = parts[0][len("---"):]
     block = front.split("\n", 1)[1] if "\n" in front else front
     data = yaml.safe_load(block)
     if not isinstance(data, dict):
-        raise ValueError(f"{path}: frontmatter did not parse to a mapping")
+        raise ValueError("frontmatter did not parse to a mapping")
     return data
+
+
+def load_card_md(path: str) -> dict[str, Any]:
+    """Parse the YAML frontmatter of a skill-card.md file into a dict."""
+
+    try:
+        return parse_frontmatter(Path(path).read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise ValueError(f"{path}: {exc}") from exc
 
 
 def load_card(path: str) -> dict[str, Any]:
@@ -121,6 +130,47 @@ def _cmd_gate(report: str, card: str | None, warn_medium_without_card: bool) -> 
     return gate.main(argv)
 
 
+def _cmd_build(skill_dir: str, report: str | None, out: str | None) -> int:
+    """Generate a card from a skill directory, then refresh its review checklist.
+
+    Exits per the review gate: a freshly generated card has un-ticked HUMAN
+    fields, so build flags that sign-off is still owed (non-zero) until a human
+    ticks card-review.md.
+    """
+
+    from skillcard import review as rv  # noqa: PLC0415
+    from skillcard.build_card import BuildError, build_card  # noqa: PLC0415
+    from skillcard.discover import discover  # noqa: PLC0415
+
+    out_dir = out or skill_dir
+    try:
+        result = discover(skill_dir, report_path=report)
+        build_card(result.card, out_dir)
+    except (BuildError, FileNotFoundError, ValueError) as exc:
+        # The skill is not ready: a missing input file, or a missing/mistyped
+        # required field. Report it cleanly rather than crashing.
+        print(f"FAIL: {exc}")
+        return 1
+
+    rv.write_review(out_dir)
+    inferred = sum(1 for v in result.provenance.values() if v == "inferred")
+    human = sum(1 for v in result.provenance.values() if v == "human")
+    print(f"OK: wrote {out_dir}/card.json and {out_dir}/skill-card.md")
+    print(f"  {inferred} inferred field(s); {human} HUMAN field group(s) need sign-off")
+
+    code, reasons = rv.check(out_dir)
+    head = "OK" if code == 0 else "ACTION"
+    for reason in reasons:
+        print(f"{head}: {reason}")
+    return code
+
+
+def _cmd_review(skill_dir: str) -> int:
+    from skillcard import review as rv  # noqa: PLC0415
+
+    return rv.review(skill_dir)
+
+
 def _cmd_stub(name: str) -> int:
     print(
         f"skillcard {name}: not implemented in v0. Planned for v2 "
@@ -153,7 +203,20 @@ def main(argv: list[str] | None = None) -> int:
     h = sub.add_parser("hash", help="compute the content_hash for a skill directory")
     h.add_argument("skill_dir")
 
-    sub.add_parser("build", help="(v2) generate a card from a skill directory")
+    b = sub.add_parser("build", help="generate a card from a skill directory")
+    b.add_argument("skill_dir")
+    b.add_argument(
+        "--report",
+        default=None,
+        help="SkillSpector JSON report (default: <skill_dir>/report.json or scan.json)",
+    )
+    b.add_argument("-o", "--out", default=None, help="output directory (default: the skill dir)")
+
+    r = sub.add_parser(
+        "review", help="gate: block until HUMAN-authored fields are signed off in card-review.md"
+    )
+    r.add_argument("skill_dir")
+
     sub.add_parser("badges", help="(v2) emit shields.io endpoint JSON from a card")
 
     args = parser.parse_args(argv)
@@ -163,6 +226,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_gate(args.report, args.card, args.warn_medium_without_card)
     if args.cmd == "hash":
         return _cmd_hash(args.skill_dir)
+    if args.cmd == "build":
+        return _cmd_build(args.skill_dir, args.report, args.out)
+    if args.cmd == "review":
+        return _cmd_review(args.skill_dir)
     return _cmd_stub(args.cmd)
 
 

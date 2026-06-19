@@ -59,11 +59,16 @@ class GateResult:
         return "\n".join(lines)
 
 
-def _band(score: int) -> str:
+def severity_band(score: int) -> str:
+    """Map a 0-100 risk score to its severity band (SPEC.md section E)."""
     for edge, name in _BANDS:
         if score <= edge:
             return name
     return "CRITICAL"
+
+
+# Back-compat private alias used throughout this module.
+_band = severity_band
 
 
 def _dig(report: dict[str, Any], path: tuple[str, ...]) -> Any:

@@ -1,21 +1,13 @@
 ---
-name: textual
+name: "textual"
 version: "1.2.0"
-card_version: "1.0"
-summary: Build and debug Python TUIs with Textual, covering widgets, reactive attributes, TCSS layout, screens, and the test harness.
+summary: "Build and debug Python TUIs with Textual, covering widgets, reactive attributes, TCSS layout, screens, and the test harness."
 owner: "@vinsonconsulting"
-repo: { tier: public, url: "https://github.com/vinsonconsulting/jims-filing-cabinet-of-claude-skills" }
-license: MIT
-source_commit: 9f3a1c2
-content_hash: "sha256:4b8e9c2a1d7f3e6b5a0c8d4f2e1b9a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a"
-status: stable
-updated: 2026-06-18
-description: >-
-  Build, style, and debug terminal user interfaces in Python with Textual. Use
-  when the user mentions Textual, a TUI, App/Widget/Screen subclasses, reactive
-  attributes, TCSS or Textual CSS, `textual run`, `textual console`, or
-  compose(). Do NOT use for plain CLI argument parsing (use click-cli),
-  Rich-only static output (use rich-render), or curses (use curses).
+repo: { tier: "public", url: "https://github.com/vinsonconsulting/jims-filing-cabinet-of-claude-skills" }
+license: "MIT"
+source_commit: "9f3a1c2"
+content_hash: "sha256:115aa2d36568604e00dac60c2b13666db39d975b77b28a5312a3bba8a1ae2e0e"
+description: "Build, style, and debug terminal user interfaces in Python with Textual. Use when the user mentions Textual, a TUI, App/Widget/Screen subclasses, reactive attributes, TCSS or Textual CSS, `textual run`, `textual console`, or compose(). Do NOT use for plain CLI argument parsing (use click-cli), Rich-only static output (use rich-render), or curses (use curses)."
 triggers:
   positive:
     - "build a Textual app with a data table and a footer"
@@ -25,44 +17,42 @@ triggers:
     - "why does textual run show a blank screen"
     - "write a pytest harness that pilots my Textual app"
   negative:
-    - { prompt: "parse these command-line flags", use_instead: click-cli }
-    - { prompt: "print a colored table to stdout", use_instead: rich-render }
-    - { prompt: "draw directly with curses windows", use_instead: curses }
-output: { type: Code, format: "Markdown with Python + TCSS code blocks" }
+    - { prompt: "parse these command-line flags", use_instead: "click-cli" }
+    - { prompt: "print a colored table to stdout", use_instead: "rich-render" }
+    - { prompt: "draw directly with curses windows", use_instead: "curses" }
+output: { type: "Code", format: "Markdown with Python + TCSS code blocks" }
 dependencies: ["textual>=0.80,<1.0", "python>=3.9"]
-external_endpoints: none
+external_endpoints: "none"
 permissions: { network: false, shell: true, file: true, env: false, mcp: false }
 metrics:
   trigger_precision: 0.95
   trigger_recall: 0.88
-  near_miss_precision: 1.00
+  near_miss_precision: 1.0
   task_completion_rate: 0.83
   eval_pass_rate: 0.86
   harness: "skill-creator@b0cbd3d / claude-opus-4-8 / 2026-06-17"
 scan:
-  tool: skillspector@a5092dd
+  tool: "skillspector@a5092dd"
   score: 12
-  severity: LOW
-  date: 2026-06-17
-  sarif: ./report.sarif
+  severity: "LOW"
+  date: "2026-06-17"
+  sarif: "./report.sarif"
   findings:
-    - { rule_id: AST4, severity: MEDIUM, status: accepted, owasp: null, atlas: AML.T0050, note: "subprocess invokes textual run and pytest; scoped to the workspace and documented in SKILL.md" }
+    - { rule_id: "AST4", severity: "MEDIUM", status: "accepted", owasp: null, atlas: "AML.T0050", note: "subprocess invokes textual run and pytest; scoped to the workspace and documented in SKILL.md" }
+status: "stable"
+card_version: "1.0"
+updated: "2026-06-18"
 ---
 
 # textual <small>v1.2.0</small>
 
-Build and debug Python TUIs with Textual, covering widgets, reactive
-attributes, TCSS layout, screens, and the test harness.
+Build and debug Python TUIs with Textual, covering widgets, reactive attributes, TCSS layout, screens, and the test harness.
 
 **Status:** stable | **License:** MIT | **Scan:** LOW (12/100)
 
 ## When to use it
 
-Build, style, and debug terminal user interfaces in Python with Textual. Use
-when the user mentions Textual, a TUI, App/Widget/Screen subclasses, reactive
-attributes, TCSS or Textual CSS, `textual run`, `textual console`, or
-compose(). Do not use it for plain CLI argument parsing (use click-cli),
-Rich-only static output (use rich-render), or curses (use curses).
+Build, style, and debug terminal user interfaces in Python with Textual. Use when the user mentions Textual, a TUI, App/Widget/Screen subclasses, reactive attributes, TCSS or Textual CSS, `textual run`, `textual console`, or compose(). Do NOT use for plain CLI argument parsing (use click-cli), Rich-only static output (use rich-render), or curses (use curses).
 
 ## Quality scorecard
 
@@ -70,7 +60,7 @@ Rich-only static output (use rich-render), or curses (use curses).
 | --- | --- |
 | Trigger precision | 0.95 |
 | Trigger recall | 0.88 |
-| Near-miss precision | 1.00 |
+| Near-miss precision | 1.0 |
 | Task completion | 0.83 |
 | Eval pass rate | 0.86 |
 
@@ -78,12 +68,10 @@ Harness: `skill-creator@b0cbd3d / claude-opus-4-8 / 2026-06-17`
 
 ## Security
 
-SkillSpector scan `skillspector@a5092dd` scored 12/100 (LOW band). One accepted
-finding: `AST4` (subprocess), MEDIUM severity, because the skill legitimately
-shells out to `textual run` and `pytest` within the workspace. The full SARIF
-report lives at `./report.sarif`.
+SkillSpector scan `skillspector@a5092dd` scored 12/100 (LOW band).
 
-This card was transcribed from the SPEC.md section B worked example. The
-trilogy (ratatui, bubbletea, textual) shares reference filenames and eval ids,
-so cross-framework metric diffs become available once the harness writes each
-`card.json`.
+Findings:
+
+- `AST4` (MEDIUM, accepted) — subprocess invokes textual run and pytest; scoped to the workspace and documented in SKILL.md
+
+The SARIF report lives at `./report.sarif`.
