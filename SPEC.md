@@ -82,6 +82,7 @@ described in section D, not a hard schema constraint.
 | `metrics.token_efficiency` | O | float | Change versus the no-skill baseline. |
 | `metrics.eval_pass_rate` | R | 0.0 to 1.0 | Functional eval pass rate. |
 | `metrics.harness` | R | string | Format `skill-creator@<sha> / <model-id> / <date>`. |
+| `metrics.notes` | O | string | Caveat on the scorecard: a number can be valid yet misleading (e.g. a harness-floor recall artifact). Added v2 (2026-06-19); nullable, omitted when absent. |
 
 The individual fields above are required *within* a metrics block. The metrics
 block as a whole is required only for `status: stable`; `draft`, `beta`, and
@@ -140,22 +141,30 @@ apply best description -> skillspector scan -> skillcard build -> skillcard revi
 
 Module responsibilities:
 
-| Module | Role | v0 status |
+| Module | Role | status (v0.3.0) |
 | --- | --- | --- |
-| `discover.py` | Walk a skill directory into a context dict. | stub |
-| `build_card.py` | Assemble and validate against `schema.py`; refuse on missing or mistyped required fields; write `skill-card.md` plus `card.json`. | stub |
-| `render.py` | Jinja render of `card.json` to `skill-card.md` via `templates/skill-card.md.j2`. | stub |
-| `review.py` | Table of inferred versus human-authored fields; blocks merge until ticked. | stub |
+| `discover.py` | Walk a skill dir into a card context + per-field provenance: SKILL.md frontmatter (the authored `card:` block), `.skillcard.toml` repo config, the SkillSpector JSON report (`report.json`/`scan.json`), `evals/evals.json` results, and git + hashing. | functional |
+| `build_card.py` | Assemble and validate against `schema.py`; refuse on missing or mistyped required fields, naming them; write `card.json` plus `skill-card.md`, asserting the two agree 1:1. Idempotent. | functional |
+| `render.py` | Jinja render of a card to `skill-card.md` via `templates/skill-card.md.j2` (every frontmatter leaf JSON-encoded so it round-trips). | functional |
+| `review.py` | Checklist of inferred-versus-HUMAN fields (`card-review.md`), fingerprint-bound to card.json; blocks `make check` until every HUMAN box is ticked. | functional |
 | `gate.py` | SARIF and JSON security policy enforcement. | functional |
 | `hashing.py` | `content_hash` over the skill's sorted source manifest. | functional |
 | `badges.py` | Map `card.json` to shields.io endpoint JSON per metric. | stub |
-| `cli.py` | The `skillcard` entrypoint: validate (schema + agreement + content_hash), gate, hash, build, badges. | validate, gate, hash functional |
+| `cli.py` | The `skillcard` entrypoint: validate (schema + agreement + content_hash), gate, hash, build, review; badges stub. | functional |
 | `schema.py` (in `schema/`) | The pydantic model; single source of truth. | functional |
 
 The generator runs after the description optimizer, so `description` and the
 `metrics.trigger_*` values reflect the final optimized skill. The generator is
 built in-house; it does not fork the NVIDIA generator and does not extend
 skill-creator.
+
+Determinism: `source_commit` and `updated` come from the last commit touching
+the skill's *source* files (so committing the generated card never advances
+them), or a `card:`-block pin for a self-contained fixture; `content_hash`
+excludes the generated artifacts; `card.json` is `json.dumps(indent=2)` in schema
+order. Re-running `skillcard build` on an unchanged skill is byte-identical.
+The worked example in section B (`examples/textual/`) is the in-repo regression
+gate: it carries its own source inputs and regenerates byte for byte.
 
 ---
 
@@ -346,9 +355,15 @@ Vectorize index. See [`worker/README.md`](worker/README.md).
 
 ## Open items (for v2)
 
-- Harness script names (`run_loop.py` confirmed; `run_eval.py`,
-  `aggregate_benchmark.py`, `generate_review.py` to verify against the installed
-  skill-creator when wiring the harness wrapper).
+- The metrics *harness wrapper* (a separate v2 task). The generator already reads
+  its committed output: `discover.py` maps the `results` block of
+  `evals/evals.json` (`triggering.{precision,recall,near_miss_precision}`,
+  `functional.{eval_pass_rate,task_completion_rate}`, `harness`, optional notes)
+  into the scorecard, and treats a missing `results` block as the beta path
+  (no metrics). The harness wrapper that *writes* that block still has script
+  names to confirm against the installed skill-creator (`run_loop.py` confirmed;
+  `run_eval.py` prints results to stdout; `aggregate_benchmark.py` /
+  `generate_review.py` consume `grading.json` per run).
 
 ## Locked decisions (2026-06-18)
 

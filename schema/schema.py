@@ -90,6 +90,10 @@ class Metrics(_Base):
     token_efficiency: float | None = None
     eval_pass_rate: float = Field(ge=0.0, le=1.0)
     harness: str
+    # A free-text caveat on the scorecard: a measured number can be valid yet
+    # misleading (for example a harness-floor recall artifact). Nullable and
+    # optional; omitted from output when absent.
+    notes: str | None = None
 
 
 # --- A.4 Security ---------------------------------------------------------------

@@ -18,6 +18,8 @@
 PY ?= python3
 VENV := .venv
 SCAN_TARGETS ?= skillcard schema
+# Carded skill dirs whose generated cards must have signed-off HUMAN fields.
+REVIEW_TARGETS ?= examples/textual
 
 ifeq ($(wildcard $(VENV)/bin/python),)
   PYBIN := $(PY)
@@ -27,7 +29,7 @@ else
   BINPREFIX := $(VENV)/bin/
 endif
 
-.PHONY: dev lint test scan check clean
+.PHONY: dev lint test scan review check clean
 
 dev:
 	$(PY) -m venv $(VENV)
@@ -48,7 +50,13 @@ scan:
 		$(PYBIN) -m skillcard.gate report.json || exit 1; \
 	done
 
-check: lint test scan
+review:
+	@for tgt in $(REVIEW_TARGETS); do \
+		echo ">> skillcard review $$tgt"; \
+		$(PYBIN) -m skillcard.cli review $$tgt || exit 1; \
+	done
+
+check: lint test scan review
 
 clean:
 	rm -rf $(VENV) report.json report.sarif .pytest_cache .ruff_cache *.egg-info

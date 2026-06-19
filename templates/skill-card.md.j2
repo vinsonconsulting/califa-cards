@@ -1,52 +1,85 @@
 {#-
   Califa Cards human-view template (SPEC.md section C).
-  Renders a validated card.json into skill-card.md. The frontmatter block is
-  the canonical machine payload; the body below it is the rendered human view.
-  Wired to Jinja by skillcard/render.py in v2.
+  Renders a validated card (a JSON-mode dict) into skill-card.md. The frontmatter
+  block is the canonical machine payload; the body below it is the rendered human
+  view. Wired to Jinja by skillcard/render.py.
+
+  Every frontmatter leaf goes through the `j` filter (json.dumps): JSON is a
+  subset of YAML, so the output is valid YAML that round-trips to the exact value
+  (null/bool/number/string-with-colons-or-quotes all handled). Optional keys are
+  read with .get() so the template never depends on the schema being imported.
 -#}
 ---
-name: {{ card.name }}
-version: "{{ card.version }}"
-card_version: "{{ card.card_version }}"
-summary: {{ card.summary }}
-owner: "{{ card.owner }}"
-repo: { tier: {{ card.repo.tier }}, url: {{ card.repo.url }} }
-license: {{ card.license }}
-source_commit: {{ card.source_commit }}
-content_hash: {{ card.content_hash }}
-status: {{ card.status }}
-updated: {{ card.updated }}
-description: >
-  {{ card.description | indent(2) }}
+name: {{ card.name | j }}
+version: {{ card.version | j }}
+summary: {{ card.summary | j }}
+owner: {{ card.owner | j }}
+repo: { tier: {{ card.repo.tier | j }}, url: {{ card.repo.url | j }} }
+license: {{ card.license | j }}
+{% if card.get('homepage') is not none %}
+homepage: {{ card.get('homepage') | j }}
+{% endif %}
+source_commit: {{ card.source_commit | j }}
+content_hash: {{ card.content_hash | j }}
+{% if card.get('signature') is not none %}
+signature: {{ card.get('signature') | j }}
+{% endif %}
+description: {{ card.description | j }}
 triggers:
   positive:
-{%- for p in card.triggers.positive %}
-    - {{ p }}
-{%- endfor %}
+{% for p in card.triggers.positive %}
+    - {{ p | j }}
+{% endfor %}
   negative:
-{%- for n in card.triggers.negative %}
-    - { prompt: {{ n.prompt }}, use_instead: {{ n.use_instead }} }
-{%- endfor %}
-output: { type: {{ card.output.type }}, format: "{{ card.output.format }}" }
-dependencies: {{ card.dependencies }}
-external_endpoints: {{ card.external_endpoints }}
-permissions: { network: {{ card.permissions.network | lower }}, shell: {{ card.permissions.shell | lower }}, file: {{ card.permissions.file | lower }}, env: {{ card.permissions.env | lower }}, mcp: {{ card.permissions.mcp | lower }} }
+{% for n in card.triggers.negative %}
+    - { prompt: {{ n.prompt | j }}, use_instead: {{ n.use_instead | j }} }
+{% endfor %}
+{% if card.get('inputs') is not none %}
+inputs: {{ card.get('inputs') | j }}
+{% endif %}
+output: { type: {{ card.output.type | j }}, format: {{ card.output.format | j }} }
+dependencies: {{ card.dependencies | j }}
+external_endpoints: {{ card.external_endpoints | j }}
+permissions: { network: {{ card.permissions.network | j }}, shell: {{ card.permissions.shell | j }}, file: {{ card.permissions.file | j }}, env: {{ card.permissions.env | j }}, mcp: {{ card.permissions.mcp | j }} }
+{% if card.metrics is none %}
+metrics: null
+{% else %}
 metrics:
-  trigger_precision: {{ card.metrics.trigger_precision }}
-  trigger_recall: {{ card.metrics.trigger_recall }}
-  task_completion_rate: {{ card.metrics.task_completion_rate }}
-  eval_pass_rate: {{ card.metrics.eval_pass_rate }}
-  harness: "{{ card.metrics.harness }}"
+  trigger_precision: {{ card.metrics.trigger_precision | j }}
+  trigger_recall: {{ card.metrics.trigger_recall | j }}
+{% if card.metrics.get('near_miss_precision') is not none %}
+  near_miss_precision: {{ card.metrics.get('near_miss_precision') | j }}
+{% endif %}
+  task_completion_rate: {{ card.metrics.task_completion_rate | j }}
+{% if card.metrics.get('tool_call_delta') is not none %}
+  tool_call_delta: {{ card.metrics.get('tool_call_delta') | j }}
+{% endif %}
+{% if card.metrics.get('token_efficiency') is not none %}
+  token_efficiency: {{ card.metrics.get('token_efficiency') | j }}
+{% endif %}
+  eval_pass_rate: {{ card.metrics.eval_pass_rate | j }}
+  harness: {{ card.metrics.harness | j }}
+{% if card.metrics.get('notes') is not none %}
+  notes: {{ card.metrics.get('notes') | j }}
+{% endif %}
+{% endif %}
 scan:
-  tool: {{ card.scan.tool }}
-  score: {{ card.scan.score }}
-  severity: {{ card.scan.severity }}
-  date: {{ card.scan.date }}
-  sarif: {{ card.scan.sarif }}
+  tool: {{ card.scan.tool | j }}
+  score: {{ card.scan.score | j }}
+  severity: {{ card.scan.severity | j }}
+  date: {{ card.scan.date | j }}
+  sarif: {{ card.scan.sarif | j }}
+{% if card.scan.findings %}
   findings:
-{%- for f in card.scan.findings %}
-    - { rule_id: {{ f.rule_id }}, severity: {{ f.severity }}, status: {{ f.status }}, owasp: {{ f.owasp }}, atlas: {{ f.atlas }}, note: "{{ f.note }}" }
-{%- endfor %}
+{% for f in card.scan.findings %}
+    - { rule_id: {{ f.rule_id | j }}, severity: {{ f.severity | j }}, status: {{ f.status | j }}, owasp: {{ f.owasp | j }}, atlas: {{ f.atlas | j }}, note: {{ f.note | j }} }
+{% endfor %}
+{% else %}
+  findings: []
+{% endif %}
+status: {{ card.status | j }}
+card_version: {{ card.card_version | j }}
+updated: {{ card.updated | j }}
 ---
 
 # {{ card.name }} <small>v{{ card.version }}</small>
@@ -59,13 +92,38 @@ scan:
 
 {{ card.description }}
 
+{% if card.metrics is not none %}
 ## Quality scorecard
 
 | Metric | Value |
 | --- | --- |
 | Trigger precision | {{ card.metrics.trigger_precision }} |
 | Trigger recall | {{ card.metrics.trigger_recall }} |
+{% if card.metrics.get('near_miss_precision') is not none %}
+| Near-miss precision | {{ card.metrics.get('near_miss_precision') }} |
+{% endif %}
 | Task completion | {{ card.metrics.task_completion_rate }} |
 | Eval pass rate | {{ card.metrics.eval_pass_rate }} |
 
 Harness: `{{ card.metrics.harness }}`
+{% if card.metrics.get('notes') is not none %}
+
+> **Caveat.** {{ card.metrics.get('notes') }}
+{% endif %}
+{% endif %}
+
+## Security
+
+SkillSpector scan `{{ card.scan.tool }}` scored {{ card.scan.score }}/100 ({{ card.scan.severity }} band).
+
+{% if card.scan.findings %}
+Findings:
+
+{% for f in card.scan.findings %}
+- `{{ f.rule_id }}` ({{ f.severity }}, {{ f.status }}){{ (" — " ~ f.note) if f.note else "" }}
+{% endfor %}
+{% else %}
+No findings.
+{% endif %}
+
+The SARIF report lives at `{{ card.scan.sarif }}`.

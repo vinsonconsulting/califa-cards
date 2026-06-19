@@ -1,7 +1,6 @@
 {
   "name": "textual",
   "version": "1.2.0",
-  "card_version": "1.0",
   "summary": "Build and debug Python TUIs with Textual, covering widgets, reactive attributes, TCSS layout, screens, and the test harness.",
   "owner": "@vinsonconsulting",
   "repo": {
@@ -9,10 +8,10 @@
     "url": "https://github.com/vinsonconsulting/jims-filing-cabinet-of-claude-skills"
   },
   "license": "MIT",
+  "homepage": null,
   "source_commit": "9f3a1c2",
-  "content_hash": "sha256:4b8e9c2a1d7f3e6b5a0c8d4f2e1b9a7c6d5e4f3a2b1c0d9e8f7a6b5c4d3e2f1a",
-  "status": "stable",
-  "updated": "2026-06-18",
+  "content_hash": "sha256:115aa2d36568604e00dac60c2b13666db39d975b77b28a5312a3bba8a1ae2e0e",
+  "signature": null,
   "description": "Build, style, and debug terminal user interfaces in Python with Textual. Use when the user mentions Textual, a TUI, App/Widget/Screen subclasses, reactive attributes, TCSS or Textual CSS, `textual run`, `textual console`, or compose(). Do NOT use for plain CLI argument parsing (use click-cli), Rich-only static output (use rich-render), or curses (use curses).",
   "triggers": {
     "positive": [
@@ -24,16 +23,29 @@
       "write a pytest harness that pilots my Textual app"
     ],
     "negative": [
-      { "prompt": "parse these command-line flags", "use_instead": "click-cli" },
-      { "prompt": "print a colored table to stdout", "use_instead": "rich-render" },
-      { "prompt": "draw directly with curses windows", "use_instead": "curses" }
+      {
+        "prompt": "parse these command-line flags",
+        "use_instead": "click-cli"
+      },
+      {
+        "prompt": "print a colored table to stdout",
+        "use_instead": "rich-render"
+      },
+      {
+        "prompt": "draw directly with curses windows",
+        "use_instead": "curses"
+      }
     ]
   },
+  "inputs": null,
   "output": {
     "type": "Code",
     "format": "Markdown with Python + TCSS code blocks"
   },
-  "dependencies": ["textual>=0.80,<1.0", "python>=3.9"],
+  "dependencies": [
+    "textual>=0.80,<1.0",
+    "python>=3.9"
+  ],
   "external_endpoints": "none",
   "permissions": {
     "network": false,
@@ -47,15 +59,17 @@
     "trigger_recall": 0.88,
     "near_miss_precision": 1.0,
     "task_completion_rate": 0.83,
+    "tool_call_delta": null,
+    "token_efficiency": null,
     "eval_pass_rate": 0.86,
-    "harness": "skill-creator@b0cbd3d / claude-opus-4-8 / 2026-06-17"
+    "harness": "skill-creator@b0cbd3d / claude-opus-4-8 / 2026-06-17",
+    "notes": null
   },
   "scan": {
     "tool": "skillspector@a5092dd",
     "score": 12,
     "severity": "LOW",
     "date": "2026-06-17",
-    "sarif": "./report.sarif",
     "findings": [
       {
         "rule_id": "AST4",
@@ -65,6 +79,10 @@
         "atlas": "AML.T0050",
         "note": "subprocess invokes textual run and pytest; scoped to the workspace and documented in SKILL.md"
       }
-    ]
-  }
+    ],
+    "sarif": "./report.sarif"
+  },
+  "status": "stable",
+  "card_version": "1.0",
+  "updated": "2026-06-18"
 }

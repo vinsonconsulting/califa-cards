@@ -1,0 +1,28 @@
+{
+  "skill_name": "textual",
+  "evals": [
+    {
+      "id": "constrained-layout",
+      "prompt": "Textual app: header/footer docked, fixed-width sidebar, main area fills the rest. Use TCSS.",
+      "rubric": ["compose() yields Header/Footer", "dock + width: 1fr", "no pre-CSS layout"]
+    },
+    {
+      "id": "stateful-scrollable-list",
+      "prompt": "A scrollable, selectable list; selecting an item shows a detail view.",
+      "rubric": ["built-in ListView/OptionList/DataTable", "handles the selection message"]
+    }
+  ],
+  "results": {
+    "triggering": {
+      "precision": 0.95,
+      "recall": 0.88,
+      "near_miss_precision": 1.0
+    },
+    "functional": {
+      "eval_pass_rate": 0.86,
+      "task_completion_rate": 0.83
+    },
+    "harness": "skill-creator@b0cbd3d / claude-opus-4-8 / 2026-06-17",
+    "date": "2026-06-17"
+  }
+}

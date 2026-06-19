@@ -1,0 +1,26 @@
+{
+  "skill": {
+    "name": "textual",
+    "source": "skills/tui/textual",
+    "scanned_at": "2026-06-17T00:00:00+00:00"
+  },
+  "risk_assessment": {
+    "score": 12,
+    "severity": "LOW",
+    "recommendation": "REVIEW"
+  },
+  "issues": [
+    {
+      "id": "AST4",
+      "severity": "MEDIUM",
+      "message": "subprocess invocation in scripts (textual run, pytest)",
+      "tags": ["AML.T0050"]
+    }
+  ],
+  "metadata": {
+    "has_executable_scripts": true,
+    "skillspector_version": "2.2.3",
+    "llm_requested": false,
+    "llm_available": false
+  }
+}
