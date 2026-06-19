@@ -74,3 +74,20 @@ def test_metric_out_of_range_rejected():
     data["metrics"]["trigger_precision"] = 1.5
     with pytest.raises(ValidationError):
         SkillCard.model_validate(data)
+
+
+def test_beta_card_without_metrics_is_valid():
+    # Lifecycle refinement: non-stable cards may omit the metrics block.
+    data = _valid_dict()
+    del data["metrics"]
+    data["status"] = "beta"
+    card = SkillCard.model_validate(data)
+    assert card.metrics is None
+
+
+def test_stable_card_without_metrics_rejected():
+    data = _valid_dict()
+    del data["metrics"]
+    data["status"] = "stable"
+    with pytest.raises(ValidationError):
+        SkillCard.model_validate(data)

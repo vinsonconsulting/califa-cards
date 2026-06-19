@@ -18,7 +18,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # A slug is kebab-case: lowercase alphanumerics joined by single hyphens.
 SLUG_PATTERN = r"^[a-z0-9]+(-[a-z0-9]+)*$"
@@ -145,11 +145,25 @@ class SkillCard(_Base):
     dependencies: list[str]
     external_endpoints: Literal["none"] | list[str]
     permissions: Permissions
-    # A.3 quality scorecard
-    metrics: Metrics
+    # A.3 quality scorecard. Required only for status: stable (see the validator
+    # below); draft/beta/deprecated cards may omit metrics, since the eval
+    # harness that produces them is a v2 deliverable.
+    metrics: Metrics | None = None
     # A.4 security
     scan: Scan
     # A.5 lifecycle
     status: Literal["draft", "beta", "stable", "deprecated"]
     card_version: str = Field(pattern=SEMVER_PATTERN)
     updated: date
+
+    @model_validator(mode="after")
+    def _metrics_required_for_stable(self) -> SkillCard:
+        """A ``stable`` card must carry a quality scorecard.
+
+        Lifecycle refinement (2026-06-19): metrics are the v2 eval-harness
+        output, so draft/beta/deprecated cards may ship without them, but a
+        skill promoted to ``stable`` must publish its measured quality.
+        """
+        if self.status == "stable" and self.metrics is None:
+            raise ValueError("metrics are required when status is 'stable'")
+        return self

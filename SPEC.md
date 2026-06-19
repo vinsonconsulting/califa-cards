@@ -37,8 +37,20 @@ allowed so `card_version: 1.0` is valid).
 | `license` | R | SPDX string | For example MIT, Apache-2.0. |
 | `homepage` | O | URL | Optional link. |
 | `source_commit` | R | git SHA | The commit the card describes. |
-| `content_hash` | R | string | SHA256 over the sorted file manifest. |
+| `content_hash` | R | string | SHA256 over the sorted file manifest (algorithm below). |
 | `signature` | O | object | Path to `skill.oms.sig` plus a cert reference (v3+). |
+
+The `content_hash` is computed by `skillcard hash <skill-dir>` and re-verified by
+`skillcard validate <skill-dir>`. Algorithm (normative):
+
+1. Walk the skill directory recursively for regular files, **excluding** the
+   generated artifacts `skill-card.md`, `card.json`, `scan.json`, `report.sarif`
+   (so the hash never references itself) and the noise paths `.DS_Store`,
+   `__pycache__/`, `.git/`.
+2. For each remaining file, form the line `<sha256-hex>␠␠<posix-relpath>` (two
+   spaces, `sha256sum` style), where the path is relative to the skill dir.
+3. Sort the lines by relative path and join them with `\n` (no trailing newline).
+4. `content_hash = "sha256:" + sha256(manifest-utf8)`.
 
 ### A.2 Capability and behavior
 
@@ -70,6 +82,12 @@ described in section D, not a hard schema constraint.
 | `metrics.token_efficiency` | O | float | Change versus the no-skill baseline. |
 | `metrics.eval_pass_rate` | R | 0.0 to 1.0 | Functional eval pass rate. |
 | `metrics.harness` | R | string | Format `skill-creator@<sha> / <model-id> / <date>`. |
+
+The individual fields above are required *within* a metrics block. The metrics
+block as a whole is required only for `status: stable`; `draft`, `beta`, and
+`deprecated` cards may omit it (lifecycle refinement, 2026-06-19), because the
+eval harness that produces metrics is a v2 deliverable. The schema enforces the
+metrics-for-stable rule.
 
 ### A.4 Security
 
@@ -129,8 +147,9 @@ Module responsibilities:
 | `render.py` | Jinja render of `card.json` to `skill-card.md` via `templates/skill-card.md.j2`. | stub |
 | `review.py` | Table of inferred versus human-authored fields; blocks merge until ticked. | stub |
 | `gate.py` | SARIF and JSON security policy enforcement. | functional |
+| `hashing.py` | `content_hash` over the skill's sorted source manifest. | functional |
 | `badges.py` | Map `card.json` to shields.io endpoint JSON per metric. | stub |
-| `cli.py` | The `skillcard` entrypoint: validate, gate, build, badges. | validate and gate functional |
+| `cli.py` | The `skillcard` entrypoint: validate (schema + agreement + content_hash), gate, hash, build, badges. | validate, gate, hash functional |
 | `schema.py` (in `schema/`) | The pydantic model; single source of truth. | functional |
 
 The generator runs after the description optimizer, so `description` and the
@@ -199,6 +218,11 @@ Discipline: the gate does not blanket-reject `subprocess` or `shell` patterns.
 The rule is "declared and justified in the card note equals accepted", not
 "pattern present equals rejected". A Textual development skill legitimately runs
 `textual run` and `pytest`.
+
+Incremental adoption: a cabinet that is still carding its skills can gate
+*every* skill on HIGH/CRITICAL while treating an as-yet-uncarded MEDIUM skill as
+a warning, via `skillcard gate <report> --warn-medium-without-card`. The
+HIGH/CRITICAL and CRITICAL-severity rules are never relaxed by that flag.
 
 Modes: the static pass (`--no-llm`) is deterministic and belongs in the
 blocking CI gate. The optional LLM semantic pass is non-deterministic, is for
