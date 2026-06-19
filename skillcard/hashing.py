@@ -1,0 +1,62 @@
+"""Content hashing for skill cards (SPEC.md section A.1).
+
+``content_hash`` is a deterministic SHA256 over the skill's *source* files, so a
+card can declare exactly which bytes it describes. It deliberately excludes the
+generated card and scan artifacts (``skill-card.md``, ``card.json``,
+``scan.json``, ``report.sarif``) so the hash never depends on itself, plus the
+usual editor/VCS noise (``.DS_Store``, ``__pycache__``, ``.git``).
+
+Algorithm (normative):
+
+1. Walk ``skill_dir`` recursively for regular files, dropping the exclusions.
+2. For each file, build the line ``"<sha256-hex>  <posix-relpath>"`` where the
+   path is relative to ``skill_dir`` with ``/`` separators.
+3. Sort the lines by relative path, join with ``"\\n"`` (no trailing newline).
+4. The result is ``"sha256:" + sha256(manifest-utf8)``.
+
+The two-space separator mirrors the ``sha256sum`` manifest convention, so the
+intermediate manifest is human-auditable.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from pathlib import Path
+
+# Generated artifacts (would make the hash self-referential) and editor/VCS noise.
+EXCLUDE_NAMES = frozenset(
+    {"skill-card.md", "card.json", "scan.json", "report.sarif", ".DS_Store"}
+)
+EXCLUDE_DIR_PARTS = frozenset({"__pycache__", ".git"})
+
+
+def _source_files(skill_dir: Path) -> list[Path]:
+    files: list[Path] = []
+    for path in skill_dir.rglob("*"):
+        if not path.is_file():
+            continue
+        rel_parts = path.relative_to(skill_dir).parts
+        if path.name in EXCLUDE_NAMES:
+            continue
+        if any(part in EXCLUDE_DIR_PARTS for part in rel_parts):
+            continue
+        files.append(path)
+    return files
+
+
+def build_manifest(skill_dir: Path) -> str:
+    """Return the sorted ``<sha256>  <relpath>`` manifest for the skill dir."""
+    skill_dir = Path(skill_dir)
+    lines: list[str] = []
+    for path in _source_files(skill_dir):
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        rel = path.relative_to(skill_dir).as_posix()
+        lines.append(f"{digest}  {rel}")
+    lines.sort(key=lambda line: line.split("  ", 1)[1])
+    return "\n".join(lines)
+
+
+def content_hash(skill_dir: Path) -> str:
+    """Return ``"sha256:<hex>"`` over the skill's sorted source manifest."""
+    manifest = build_manifest(Path(skill_dir))
+    return "sha256:" + hashlib.sha256(manifest.encode("utf-8")).hexdigest()

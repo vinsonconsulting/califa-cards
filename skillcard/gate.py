@@ -111,13 +111,22 @@ def _card_findings_index(card: dict[str, Any]) -> dict[str, dict[str, Any]]:
     return index
 
 
-def evaluate(report: dict[str, Any], card: dict[str, Any] | None = None) -> GateResult:
+def evaluate(
+    report: dict[str, Any],
+    card: dict[str, Any] | None = None,
+    warn_medium_without_card: bool = False,
+) -> GateResult:
     """Apply the gate policy to a parsed SkillSpector JSON report.
 
     ``card`` is an optional parsed skill-card (the dict form of card.json). It
     supplies the ``status: accepted`` plus note annotations the MEDIUM band
     requires. A self-scan of a non-skill repo passes with ``card=None`` only
     when it lands in the LOW band.
+
+    ``warn_medium_without_card`` relaxes one case: a MEDIUM-band scan with no
+    card passes with a warning instead of failing. This lets a cabinet gate
+    *every* skill on HIGH/CRITICAL while it incrementally cards the rest; the
+    HIGH/CRITICAL and CRITICAL-severity rules are never relaxed.
     """
 
     score = extract_score(report)
@@ -137,6 +146,13 @@ def evaluate(report: dict[str, Any], card: dict[str, Any] | None = None) -> Gate
 
     # MEDIUM band: every finding must be accepted and noted on the card.
     if card is None:
+        if warn_medium_without_card:
+            return GateResult(
+                True,
+                score,
+                band,
+                ["WARN: MEDIUM band with no card (not gated in v1; HIGH/CRITICAL still fail)"],
+            )
         return GateResult(
             False,
             score,
@@ -190,11 +206,16 @@ def main(argv: list[str] | None = None) -> int:
         default=None,
         help="optional skill-card (card.json or skill-card.md) supplying finding notes",
     )
+    parser.add_argument(
+        "--warn-medium-without-card",
+        action="store_true",
+        help="treat a MEDIUM band with no card as a warning (exit 0), not a failure",
+    )
     args = parser.parse_args(argv)
 
     report = _load_json(args.report)
     card = _load_card(args.card)
-    result = evaluate(report, card)
+    result = evaluate(report, card, warn_medium_without_card=args.warn_medium_without_card)
     print(result)
     return 0 if result.passed else 1
 
