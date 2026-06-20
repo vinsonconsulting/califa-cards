@@ -1,33 +1,37 @@
-"""Functional evaluation orchestrator (SPEC.md section D) -- NET-NEW.
+"""Functional evaluation orchestrator (SPEC.md section D).
 
 The trigger harness measures *whether* a skill fires; this measures *how well it
 does the work* once it does. Convention: a skill provides
 ``evals/functional/{tasks.json, run_grader.py, graders.py, fixtures/}``. For each
-task we generate a README via ``claude -p`` (the skill proxy + fixtures present in
-an isolated workspace), then grade it with the skill's OWN deterministic
+task we run the skill's full workflow to completion in an isolated workspace -- the
+real skill and the task's fixtures are present, and ``claude -p`` runs with
+file-write permission so the skill produces its actual deliverable (a ``README.md``
+written to disk). We then grade THAT artifact with the skill's OWN deterministic
 ``run_grader.py`` -- we never re-implement scoring. Aggregate:
 
 * ``eval_pass_rate``       = mean over tasks of the grader's ``summary.pass_rate``
 * ``task_completion_rate`` = fraction of tasks that fully pass (passed == total)
 
+ARTIFACT GRADING (methodology). We grade the file the skill writes, not the
+conversational ``claude -p`` stdout. Grading stdout scans Claude's wrapper prose
+("here's your polished README...") alongside the deliverable, which trips strict
+deterministic graders -- an em-dash or an AI-tell word in the wrapper fails a check
+the README itself passes -- and floors the score. Grading the on-disk artifact
+strips the wrapper, so the figures reproduce the cabinet's authoritative
+deterministic graders (github-readme: 1.0/1.0). If the skill writes no file we fall
+back to extracting the artifact from stdout, then to raw stdout: a graceful lower
+bound, never a crash.
+
 ``generate`` is injectable: tests pass a stub that returns canned README text, so
 the grade -> aggregate path runs with ZERO ``claude`` calls (``make check`` stays
 offline). ``tool_call_delta`` / ``token_efficiency`` need a no-skill baseline run
 and are left unset (both optional in the schema).
-
-CAVEAT (methodology). This is a *single-shot* generate-then-grade approximation,
-not a re-implementation of a cabinet's careful with-skill benchmark. It grades
-``claude -p`` stdout directly, so conversational wrapping in the response and the
-one-shot nature both depress scores against strict deterministic graders -- the
-absolute ``eval_pass_rate`` / ``task_completion_rate`` it reports are a lower
-bound, useful as a smoke signal, not an authoritative functional score. The
-*triggering* harness, by contrast, reproduces the cabinet numbers exactly. Treat
-functional figures from this wrapper as diagnostic.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -37,19 +41,46 @@ from pathlib import Path
 
 from skillcard.harness.trigger import EVAL_WORKSPACE_ROOT, claude_env, parse_skill_md
 
+# A fenced code block, tolerating an info string after the opening backticks.
+_FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+
+
+def _extract_artifact(workdir: Path, stdout: str, artifact_name: str) -> str:
+    """Return the task's produced artifact: the written file, else from stdout.
+
+    Priority, so we always grade the closest thing to the real deliverable:
+
+    1. ``workdir/artifact_name`` if the skill wrote it -- the authoritative path:
+       the file is exactly the deliverable, with no conversational wrapper;
+    2. else the largest fenced code block in stdout (the model emitted the README
+       inline instead of writing a file);
+    3. else raw stdout (degrades to the pre-artifact behaviour; never crashes).
+    """
+    artifact = workdir / artifact_name
+    if artifact.is_file():
+        text = artifact.read_text(encoding="utf-8")
+        if text.strip():
+            return text
+    blocks = _FENCE_RE.findall(stdout)
+    if blocks:
+        return max(blocks, key=len)
+    return stdout
+
 
 def _generate_readme_live(
     task: dict, skill_dir: Path, skill_name: str, model: str | None, timeout: int,
 ) -> str:
-    """Generate a README for one task via ``claude -p``, with the REAL skill loaded.
+    """Run one task's full workflow with the REAL skill loaded; return the artifact.
 
-    Unlike the trigger runner (which installs a description-only *proxy* to
-    measure whether the skill fires), functional generation copies the actual
-    skill into the workspace's ``.claude/skills/<name>/`` so the model can use
-    its guidance, then grades the result. This is a single-shot generate-then-grade
-    approximation of the cabinet's with-skill benchmark, not a re-implementation
-    of it. Fixtures are copied in so the prompt's relative paths resolve.
+    Copies the actual skill into the workspace's ``.claude/skills/<name>/`` (so the
+    model uses its guidance, unlike the trigger runner's description-only proxy) and
+    copies the task fixtures so relative paths resolve, then runs ``claude -p`` with
+    file-write permission and an explicit instruction to write the deliverable to a
+    known path. The produced file is the graded artifact -- see
+    :func:`_extract_artifact`. Per-run workspace isolation under
+    ``EVAL_WORKSPACE_ROOT``; the workdir is removed in ``finally``.
     """
+    artifact_name = task.get("artifact", "README.md")
     workdir = EVAL_WORKSPACE_ROOT / f"func-{uuid.uuid4().hex[:8]}"
     skill_install = workdir / ".claude" / "skills" / skill_name
     skill_install.mkdir(parents=True, exist_ok=True)
@@ -64,14 +95,22 @@ def _generate_readme_live(
             dst = workdir / rel
             dst.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(src, dst)
-        cmd = ["claude", "-p", task["prompt"]]
+        # Pin the output path so we grade the real deliverable, not stdout. The
+        # workspace is isolated and ephemeral, so bypassPermissions is safe and
+        # lets the skill actually write its file (the whole point of this axis).
+        prompt = (
+            f"{task['prompt']}\n\n"
+            f"Write the finished result to a file named {artifact_name} in the "
+            f"current directory."
+        )
+        cmd = ["claude", "-p", prompt, "--permission-mode", "bypassPermissions"]
         if model:
             cmd += ["--model", model]
         proc = subprocess.run(
             cmd, cwd=str(workdir), env=claude_env(),
             capture_output=True, text=True, timeout=timeout,
         )
-        return proc.stdout
+        return _extract_artifact(workdir, proc.stdout, artifact_name)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -101,13 +140,13 @@ def _grade(skill_dir: Path, task_id: str, readme_text: str) -> dict:
 def run_functional(
     skill_dir: str | Path,
     model: str | None = None,
-    timeout: int = 120,
+    timeout: int = 300,
     generate: Callable[[dict], str] | None = None,
 ) -> dict | None:
     """Run the functional set; return the aggregate, or None if the skill has none.
 
-    ``generate(task) -> readme_text`` defaults to a live ``claude -p`` call; inject
-    a stub in tests to exercise grading + aggregation offline.
+    ``generate(task) -> readme_text`` defaults to a live ``claude -p`` workflow run;
+    inject a stub in tests to exercise grading + aggregation offline.
     """
     skill_dir = Path(skill_dir)
     tasks_path = skill_dir / "evals" / "functional" / "tasks.json"

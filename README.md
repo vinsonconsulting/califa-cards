@@ -43,8 +43,8 @@ There are two kinds of thing in this world, and Califa is the first kind.
 | --- | --- |
 | `schema/schema.py` | Functional. The pydantic v2 model of the standard (spec section A) and the single source of truth. |
 | `skillcard/gate.py` | Functional. The SkillSpector score gate (spec section E). |
-| `skillcard/cli.py` | `validate`, `gate`, `hash`, `build`, `review`, and `eval` are functional; `badges` is a v2 stub. |
-| `skillcard/harness/` | The metrics harness behind `skillcard eval`: a namespace-isolated trigger runner (ported fork) + functional grader orchestrator that writes `evals/evals.json`. Makes real `claude` calls; needs the `claude` CLI; never part of `make check`. |
+| `skillcard/cli.py` | `validate`, `gate`, `hash`, `build`, `review`, `eval`, and `optimize` are functional; `badges` is a v2 stub. |
+| `skillcard/harness/` | The harness behind `skillcard eval` and `skillcard optimize`: a namespace-isolated trigger runner (ported fork), a functional orchestrator that grades the **on-disk artifact** the skill produces (not `claude -p` stdout), and the ported description optimizer. Makes real `claude` calls; needs the `claude` CLI; never part of `make check`. |
 | `examples/textual/` | The reference card: authored `SKILL.md` + `card.authored.yaml` inputs, and the generated `card.json` / `skill-card.md`. |
 | Discover Worker | Documented stub for v2 (spec sections G, H). |
 
@@ -79,6 +79,19 @@ make check    # ruff lint + pytest + a clean SkillSpector self-scan
 
 `make check` is the gate for every change. It lints, runs the schema and gate
 tests, and scans this repo's own tooling, requiring it to land in the LOW band.
+
+The skill-authoring metrics loop spends tokens and stays out of `make check`
+(both commands require `--i-understand-this-spends-tokens`):
+
+```bash
+# Optimize a skill's description against its trigger set, then review the diff
+# and update SKILL.md only on accept (the change moves content_hash).
+skillcard optimize skills/tui/textual --i-understand-this-spends-tokens
+
+# Measure triggering + functional metrics into evals/evals.json. Functional runs
+# each task's full workflow and grades the produced README, not claude -p stdout.
+skillcard eval skills/tui/textual --i-understand-this-spends-tokens
+```
 
 ## Two things this build resolved
 
