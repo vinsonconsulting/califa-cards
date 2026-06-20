@@ -52,6 +52,20 @@ def test_provenance_format():
     assert harness_provenance("m", "d", sha="abc123") == "skill-eval-fork@abc123 / m / d"
 
 
+def test_sampling_recorded_in_harness_string_when_best_of_gt_1():
+    # best_of > 1 appends the sampling method so a stable cert is transparent about
+    # how the number was obtained; default best_of=1 leaves the v0.6.0 string intact.
+    block = build_results_block(_trig(), _FUNC, "claude-opus-4-8", "2026-06-20", best_of=3)
+    base = f"skill-eval-fork@{FORK_SHA} / claude-opus-4-8 / 2026-06-20"
+    assert block["harness"] == f"{base} / best_of_3"
+    single = build_results_block(_trig(), _FUNC, "claude-opus-4-8", "2026-06-20")
+    assert single["harness"] == base
+    assert (
+        harness_provenance("m", "d", sha="abc", sampling="best_of_5")
+        == "skill-eval-fork@abc / m / d / best_of_5"
+    )
+
+
 def test_write_evals_json_preserves_eval_defs(tmp_path):
     evals = tmp_path / "evals"
     evals.mkdir()

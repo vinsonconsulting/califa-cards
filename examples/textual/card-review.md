@@ -4,7 +4,7 @@ Each HUMAN field below needs sign-off: put an x in its checkbox once you
 have verified it. `skillcard review` / `make check` blocks until every box
 is checked. Regenerating the card with changed content resets this checklist.
 
-fingerprint: sha256:b0795c84872a4e8a080624d0e656fff02e1785d01bb4605e60eda046f025a3c4
+fingerprint: sha256:aa88695f624cb108118069cd9456aecf2df2f2489db6bf6a93032c720f7576af
 
 - [x] `summary` — Build and debug Python TUIs with Textual, covering widgets, reactive attributes, TCSS layout, screens, and the test harness.
 - [x] `triggers` — 6 positive / 3 negative

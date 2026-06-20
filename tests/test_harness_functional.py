@@ -81,6 +81,34 @@ def test_functional_partial_fail(tmp_path):
     assert out["task_completion_rate"] == 0.0  # task did not fully pass
 
 
+def test_best_of_keeps_the_best_generation(tmp_path):
+    # First generation fails an assertion, the second is clean. best_of=2 keeps the
+    # better run, so the task reaches 1.0/1.0; best_of=1 sees only the first (0.5/0.0).
+    skill = _make_skill(tmp_path)
+    outputs = iter(["hello, no second word", "hello world"])
+
+    def generate(task):
+        return next(outputs)
+
+    out = run_functional(skill, generate=generate, best_of=2)
+    assert out["eval_pass_rate"] == 1.0
+    assert out["task_completion_rate"] == 1.0
+
+
+def test_best_of_default_is_single_shot(tmp_path):
+    # Default best_of=1 runs the cycle exactly once: the single-shot path is unchanged.
+    skill = _make_skill(tmp_path)
+    calls = []
+
+    def generate(task):
+        calls.append(task["id"])
+        return "hello, no second word"
+
+    out = run_functional(skill, generate=generate)
+    assert len(calls) == 1  # one generation per task, as before
+    assert out["eval_pass_rate"] == 0.5 and out["task_completion_rate"] == 0.0
+
+
 def test_no_functional_dir_returns_none(tmp_path):
     skill = tmp_path / "bare"
     skill.mkdir()
