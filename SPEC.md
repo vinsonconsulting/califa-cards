@@ -50,8 +50,11 @@ The `content_hash` is computed by `skillcard hash <skill-dir>` and re-verified b
    generated artifacts `skill-card.md`, `card.json`, `card-review.md`,
    `scan.json`, `report.json`, `report.sarif` (so the hash never references
    itself), the authored governance sidecar `card.authored.yaml` (governance is
-   overlay, not the code the hash describes), and the noise paths `.DS_Store`,
-   `__pycache__/`, `.git/`.
+   overlay, not the code the hash describes), the metrics harness output
+   `evals/evals.json` (run provenance + the results block, rewritten with a fresh
+   date every run — so populating or re-running metrics never moves the
+   code-identity hash; the authored eval *set* it grades against stays hashed),
+   and the noise paths `.DS_Store`, `__pycache__/`, `.git/`.
 2. For each remaining file, form the line `<sha256-hex>␠␠<posix-relpath>` (two
    spaces, `sha256sum` style), where the path is relative to the skill dir.
 3. Sort the lines by relative path and join them with `\n` (no trailing newline).
@@ -199,9 +202,18 @@ functional numbers reproduce the cabinet's authoritative deterministic graders
 rather than a depressed lower bound; if the skill writes no file the harness
 falls back to extracting the artifact from stdout. The two sub-blocks are
 written together or not at all (a `stable` card needs both; their absence is the
-beta path). `metrics.harness` records `skill-eval-fork@<sha> / <model> / <date>`.
+beta path). The residual gap to the authoritative score is single-shot generation
+variance, so functional grading is **opt-in best-of-N** (`--best-of N`, default 1):
+each task's generate -> grade cycle runs N times and the highest-scoring run is
+kept, so a clean generation is what counts. `metrics.harness` records
+`skill-eval-fork@<sha> / <model> / <date>`, with a trailing ` / best_of_<N>` when
+N > 1 so a populated cert is transparent about how the number was obtained. The
+output `evals/evals.json` is **excluded from `content_hash`** (it carries the
+run's date, so hashing it would make the code identity non-deterministic across
+runs); the authored eval *set* (`triggering.jsonl`, `functional/tasks.json`,
+`run_grader.py`, `graders.py`, `fixtures/`) stays hashed as the test contract.
 Real `claude` calls -> never part of `make check`; guarded behind an explicit
-token-spend ack.
+token-spend ack (N > 1 multiplies the cost, so it stays behind the same ack).
 
 `skillcard optimize <skill_dir>` is the in-house description optimizer (the
 ported skill-creator `run_loop`). It measures the current description against the
@@ -421,3 +433,11 @@ Vectorize index. See [`worker/README.md`](worker/README.md).
   `make check`.
 - Signing: deferred to v3; v1 and v2 integrity is `content_hash` plus a signed
   git tag.
+- v0.6.1 (2026-06-20): the metrics harness output `evals/evals.json` is excluded
+  from `content_hash` (same class as `report.json`) so running `skillcard eval` —
+  whose fresh date alone flips the hash — no longer moves the code identity; the
+  authored eval set stays hashed as the test contract. Functional grading gains
+  opt-in best-of-N (`--best-of N`, default 1 = single-shot) to reproduce the
+  authoritative score by keeping the best of N generations per task; the sampling
+  method is recorded in the `metrics.harness` string, never a new card field
+  (`schema.py` is frozen).

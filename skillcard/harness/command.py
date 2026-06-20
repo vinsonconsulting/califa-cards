@@ -41,6 +41,10 @@ def run_eval_command(args) -> int:
         print("FAIL: `skillcard eval` makes live `claude -p` calls (spends tokens). "
               "Re-run with --i-understand-this-spends-tokens.")
         return 2
+    best_of = getattr(args, "best_of", 1) or 1
+    if best_of < 1:
+        print(f"FAIL: --best-of must be >= 1 (got {best_of}).")
+        return 2
     if shutil.which("claude") is None:
         print("FAIL: `claude` CLI not found on PATH; `skillcard eval` needs it for live runs.")
         return 1
@@ -70,13 +74,16 @@ def run_eval_command(args) -> int:
 
     func_out = None
     if not args.skip_functional:
-        print("eval: functional (full workflow + grade per task)...")
-        func_out = run_functional(skill_dir, model=args.model, timeout=max(args.timeout, 300))
+        sampling = f" best-of-{best_of}" if best_of > 1 else ""
+        print(f"eval: functional (full workflow + grade per task){sampling}...")
+        func_out = run_functional(
+            skill_dir, model=args.model, timeout=max(args.timeout, 300), best_of=best_of
+        )
 
     out_dir = Path(args.out) if args.out else skill_dir / "evals"
     today = datetime.date.today().isoformat()
     path = assemble.write_evals_json(
-        skill_dir, out_dir, name, trig_out, func_out, args.model, today
+        skill_dir, out_dir, name, trig_out, func_out, args.model, today, best_of=best_of
     )
     tail = "results block populated" if func_out else "no results block: functional skipped -> beta"
     print(f"OK: wrote {path} ({tail})")

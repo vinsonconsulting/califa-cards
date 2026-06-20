@@ -227,6 +227,11 @@ def main(argv: list[str] | None = None) -> int:
         help="run triggering only; writes NO results block (the beta path)",
     )
     e.add_argument(
+        "--best-of", type=int, default=1,
+        help="functional sampling: grade each task N times, keep the best run "
+        "(default 1, single-shot); N>1 multiplies token cost",
+    )
+    e.add_argument(
         "-o", "--out", default=None,
         help="output dir for evals.json (default: <skill_dir>/evals); use a scratch dir to "
         "avoid clobbering committed fixtures",

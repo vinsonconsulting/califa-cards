@@ -10,6 +10,15 @@ from __future__ import annotations
 from skillcard.harness.trigger import FORK_SHA
 
 
-def harness_provenance(model: str, date: str, sha: str | None = None) -> str:
-    """Return ``skill-eval-fork@<sha> / <model> / <date>``."""
-    return f"skill-eval-fork@{sha or FORK_SHA} / {model} / {date}"
+def harness_provenance(
+    model: str, date: str, sha: str | None = None, sampling: str | None = None
+) -> str:
+    """Return ``skill-eval-fork@<sha> / <model> / <date>``.
+
+    When ``sampling`` is given (e.g. ``"best_of_3"``) it is appended as a final
+    `` / <sampling>`` segment, so a populated cert is transparent about how the
+    functional number was obtained. Omitted by default -> single-shot -> the string
+    is byte-identical to v0.6.0.
+    """
+    base = f"skill-eval-fork@{sha or FORK_SHA} / {model} / {date}"
+    return f"{base} / {sampling}" if sampling else base

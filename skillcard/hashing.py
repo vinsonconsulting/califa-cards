@@ -5,7 +5,10 @@ card can declare exactly which bytes it describes. It deliberately excludes the
 generated card and scan artifacts (``skill-card.md``, ``card.json``,
 ``scan.json``, ``report.json``, ``report.sarif``) so the hash never depends on
 itself, plus the authored governance sidecar (``card.authored.yaml``) so editing
-status or a finding decision never moves the *code*-identity hash, plus the usual
+status or a finding decision never moves the *code*-identity hash, plus the eval
+harness output (``evals/evals.json``) so running ``skillcard eval`` -- which
+rewrites it with a fresh date -- never moves the hash either (the authored eval
+*set* it grades against stays hashed as the test contract), plus the usual
 editor/VCS noise (``.DS_Store``, ``__pycache__``, ``.git``).
 
 Algorithm (normative):
@@ -29,9 +32,13 @@ from pathlib import Path
 # ``report.json`` and ``scan.json`` are both names the SkillSpector JSON pass may
 # write into a skill dir; ``card-review.md`` is the generator's sign-off
 # checklist; ``card.authored.yaml`` is the authored governance overlay (status,
-# accepted-finding notes, provenance pins). None is source, so none enters the
-# hash -- and because this set also drives ``_source_files`` (and thus the
-# git-scoped ``source_commit``), the sidecar never advances provenance either.
+# accepted-finding notes, provenance pins); ``evals/evals.json`` is the metrics
+# harness output (run provenance + the results block, rewritten with a fresh date
+# every run). None is source, so none enters the hash -- and because this set also
+# drives ``_source_files`` (and thus the git-scoped ``source_commit``), neither the
+# sidecar nor the eval output advances provenance either. The authored eval *set*
+# (``triggering.jsonl``, ``functional/{tasks.json,run_grader.py,graders.py}``,
+# ``fixtures/``) is NOT excluded: it is the test contract and stays hashed.
 EXCLUDE_NAMES = frozenset(
     {
         "skill-card.md",
@@ -41,6 +48,7 @@ EXCLUDE_NAMES = frozenset(
         "scan.json",
         "report.json",
         "report.sarif",
+        "evals.json",
         ".DS_Store",
     }
 )

@@ -12,6 +12,12 @@ def test_eval_without_ack_exits_2_and_spends_nothing():
     assert cli.main(["eval", "/nonexistent-skill-dir"]) == 2
 
 
+def test_best_of_still_requires_the_token_ack():
+    # --best-of multiplies token cost, so the ack guard must hold regardless of N:
+    # the command still refuses (exit 2) before any harness call.
+    assert cli.main(["eval", "/nonexistent-skill-dir", "--best-of", "3"]) == 2
+
+
 def test_eval_with_ack_but_missing_eval_set_fails_cleanly(tmp_path):
     # Past the ack + claude-present checks, a skill with no triggering.jsonl is a
     # clean exit 1 (not a traceback). claude is on PATH locally; if absent the

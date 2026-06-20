@@ -28,9 +28,14 @@ def _round(value: Any, ndigits: int = 4) -> Any:
 
 
 def build_results_block(
-    trig_out: dict, func_out: dict | None, model: str, date: str
+    trig_out: dict, func_out: dict | None, model: str, date: str, best_of: int = 1
 ) -> dict | None:
-    """Map a harness run (+ functional aggregate) to a ``results`` block, or None."""
+    """Map a harness run (+ functional aggregate) to a ``results`` block, or None.
+
+    ``best_of`` (default 1, single-shot) is recorded in the ``harness`` provenance
+    string when > 1 (e.g. ``... / best_of_3``), so a populated cert states how the
+    functional number was obtained.
+    """
     s = trig_out["summary"]
     triggering = {
         "precision": _round(s["precision"]),
@@ -45,10 +50,11 @@ def build_results_block(
         "eval_pass_rate": _round(func_out["eval_pass_rate"]),
         "task_completion_rate": _round(func_out["task_completion_rate"]),
     }
+    sampling = f"best_of_{best_of}" if best_of and best_of > 1 else None
     return {
         "triggering": triggering,
         "functional": functional,
-        "harness": harness_provenance(model, date),
+        "harness": harness_provenance(model, date, sampling=sampling),
         "date": date,
     }
 
@@ -61,6 +67,7 @@ def write_evals_json(
     func_out: dict | None,
     model: str,
     date: str,
+    best_of: int = 1,
 ) -> Path:
     """Write ``<out_dir>/evals.json``: preserve existing ``evals[]``, recompute results.
 
@@ -80,7 +87,7 @@ def write_evals_json(
         if prior.get("evals") is not None:
             payload["evals"] = prior["evals"]
 
-    block = build_results_block(trig_out, func_out, model, date)
+    block = build_results_block(trig_out, func_out, model, date, best_of=best_of)
     if block is not None:
         payload["results"] = block
 

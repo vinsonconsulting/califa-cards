@@ -142,11 +142,19 @@ def run_functional(
     model: str | None = None,
     timeout: int = 300,
     generate: Callable[[dict], str] | None = None,
+    best_of: int = 1,
 ) -> dict | None:
     """Run the functional set; return the aggregate, or None if the skill has none.
 
     ``generate(task) -> readme_text`` defaults to a live ``claude -p`` workflow run;
     inject a stub in tests to exercise grading + aggregation offline.
+
+    ``best_of`` (default 1, single-shot) runs the generate -> grade cycle N times
+    per task and keeps the highest-scoring run, so a clean generation is what
+    counts and the aggregate reproduces the authoritative score rather than a
+    single-shot lower bound. Best = max ``pass_rate``; since ``total`` is fixed per
+    task that also maximises completion (``passed == total``). Opt-in: N>1 costs N
+    times the tokens, so the CLI guards it behind the token-spend ack.
     """
     skill_dir = Path(skill_dir)
     tasks_path = skill_dir / "evals" / "functional" / "tasks.json"
@@ -159,15 +167,19 @@ def run_functional(
         def generate(task: dict) -> str:
             return _generate_readme_live(task, skill_dir, name, model, timeout)
 
+    samples = max(1, best_of)
     pass_rates: list[float] = []
     completions: list[float] = []
     per_task: list[dict] = []
     for task in tasks:
-        readme = generate(task)
-        summary = _grade(skill_dir, task["id"], readme)
-        pass_rates.append(summary["pass_rate"])
-        completions.append(1.0 if summary["passed"] == summary["total"] else 0.0)
-        per_task.append({"id": task["id"], **summary})
+        best: dict | None = None
+        for _ in range(samples):
+            summary = _grade(skill_dir, task["id"], generate(task))
+            if best is None or summary["pass_rate"] > best["pass_rate"]:
+                best = summary
+        pass_rates.append(best["pass_rate"])
+        completions.append(1.0 if best["passed"] == best["total"] else 0.0)
+        per_task.append({"id": task["id"], **best})
 
     n = len(pass_rates)
     return {
