@@ -43,9 +43,10 @@ There are two kinds of thing in this world, and Califa is the first kind.
 | --- | --- |
 | `schema/schema.py` | Functional. The pydantic v2 model of the standard (spec section A) and the single source of truth. |
 | `skillcard/gate.py` | Functional. The SkillSpector score gate (spec section E). |
-| `skillcard/cli.py` | `validate`, `gate`, `hash`, `build`, and `review` are functional; `badges` is a v2 stub. |
+| `skillcard/cli.py` | `validate`, `gate`, `hash`, `build`, `review`, and `eval` are functional; `badges` is a v2 stub. |
+| `skillcard/harness/` | The metrics harness behind `skillcard eval`: a namespace-isolated trigger runner (ported fork) + functional grader orchestrator that writes `evals/evals.json`. Makes real `claude` calls; needs the `claude` CLI; never part of `make check`. |
 | `examples/textual/` | The reference card: authored `SKILL.md` + `card.authored.yaml` inputs, and the generated `card.json` / `skill-card.md`. |
-| Generator modules, discover Worker | Documented stubs for v2 (spec sections C, G, H). |
+| Discover Worker | Documented stub for v2 (spec sections G, H). |
 
 ## 🗝️ Quickstart: how a cabinet consumes Califa
 

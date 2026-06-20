@@ -29,7 +29,9 @@ else
   BINPREFIX := $(VENV)/bin/
 endif
 
-.PHONY: dev lint test scan review check clean
+.PHONY: dev lint test scan review eval check clean
+
+EVAL_WORKERS ?= 4
 
 dev:
 	$(PY) -m venv $(VENV)
@@ -42,13 +44,21 @@ lint:
 test:
 	$(PYBIN) -m pytest -q
 
+# The eval harness (skillcard/harness/) drives `claude` and writes proxy command
+# files by design, so SkillSpector reads it as skill-manifest manipulation -- a
+# false positive on framework tooling (the cabinets keep their skill-eval fork
+# out of scan for the same reason). Scan a staged copy with the harness pruned.
 scan:
+	@rm -rf .scan-stage && mkdir -p .scan-stage
+	@for tgt in $(SCAN_TARGETS); do cp -R $$tgt .scan-stage/$$tgt; done
+	@rm -rf .scan-stage/skillcard/harness
 	@for tgt in $(SCAN_TARGETS); do \
-		echo ">> skillspector scan $$tgt"; \
-		$(BINPREFIX)skillspector scan $$tgt --no-llm --format json --output report.json; \
-		$(BINPREFIX)skillspector scan $$tgt --no-llm --format sarif --output report.sarif; \
-		$(PYBIN) -m skillcard.gate report.json || exit 1; \
+		echo ">> skillspector scan $$tgt (eval harness excluded)"; \
+		$(BINPREFIX)skillspector scan .scan-stage/$$tgt --no-llm --format json --output report.json; \
+		$(BINPREFIX)skillspector scan .scan-stage/$$tgt --no-llm --format sarif --output report.sarif; \
+		$(PYBIN) -m skillcard.gate report.json || { rm -rf .scan-stage; exit 1; }; \
 	done
+	@rm -rf .scan-stage
 
 review:
 	@for tgt in $(REVIEW_TARGETS); do \
@@ -56,8 +66,15 @@ review:
 		$(PYBIN) -m skillcard.cli review $$tgt || exit 1; \
 	done
 
+# Run the metrics harness for one skill: triggering + functional evals -> evals.json.
+# Usage: make eval SKILL=examples/textual [EVAL_WORKERS=4]
+# Needs the `claude` CLI (real API calls, spends tokens); intentionally NOT in `check`.
+eval:
+	$(PYBIN) -m skillcard.cli eval $(SKILL) --workers $(EVAL_WORKERS) \
+		--i-understand-this-spends-tokens
+
 check: lint test scan review
 
 clean:
-	rm -rf $(VENV) report.json report.sarif .pytest_cache .ruff_cache *.egg-info
+	rm -rf $(VENV) report.json report.sarif .scan-stage .pytest_cache .ruff_cache *.egg-info
 	find . -type d -name __pycache__ -prune -exec rm -rf {} +
