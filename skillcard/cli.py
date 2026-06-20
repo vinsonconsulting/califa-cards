@@ -13,6 +13,9 @@ Subcommands:
 * ``build``     generate a card from a skill directory (discover -> build -> review).
 * ``eval``      run the trigger + functional metrics harness (live ``claude -p``) and
                 write ``evals/evals.json``. Spends tokens; never part of ``make check``.
+* ``optimize``  optimize a skill's description via the trigger-eval loop, then apply
+                the proposed description to ``SKILL.md`` on accept (a reviewed update,
+                since it moves ``content_hash``). Spends tokens; never in ``make check``.
 * ``badges``    (v2) emit shields.io endpoint JSON from a card. Stub.
 """
 
@@ -234,6 +237,33 @@ def main(argv: list[str] | None = None) -> int:
     )
     e.add_argument("--workspace-base", default=None, help=argparse.SUPPRESS)
 
+    o = sub.add_parser(
+        "optimize",
+        help="optimize a skill's description (trigger-eval loop); reviewed update on accept",
+    )
+    o.add_argument("skill_dir")
+    o.add_argument("--model", default="claude-opus-4-8", help="model id for claude -p")
+    o.add_argument("--workers", type=int, default=4, help="parallel workers for the trigger eval")
+    o.add_argument("--runs-per-query", type=int, default=3, help="runs per query (for variance)")
+    o.add_argument("--timeout", type=int, default=60, help="per-call claude timeout (seconds)")
+    o.add_argument(
+        "--max-iterations", type=int, default=3,
+        help="max propose->measure iterations (default 3)",
+    )
+    o.add_argument(
+        "--yes", action="store_true",
+        help="apply the proposed description without the interactive prompt",
+    )
+    o.add_argument(
+        "--dry-run", action="store_true",
+        help="propose and show the diff only; apply no changes",
+    )
+    o.add_argument(
+        "--i-understand-this-spends-tokens", dest="ack", action="store_true",
+        help="required: confirms a live claude run (this command spends tokens)",
+    )
+    o.add_argument("--workspace-base", default=None, help=argparse.SUPPRESS)
+
     sub.add_parser("badges", help="(v2) emit shields.io endpoint JSON from a card")
 
     args = parser.parse_args(argv)
@@ -251,6 +281,10 @@ def main(argv: list[str] | None = None) -> int:
         from skillcard.harness.command import run_eval_command  # noqa: PLC0415
 
         return run_eval_command(args)
+    if args.cmd == "optimize":
+        from skillcard.harness.optimize import run_optimize_command  # noqa: PLC0415
+
+        return run_optimize_command(args)
     return _cmd_stub(args.cmd)
 
 

@@ -9,6 +9,7 @@ of tasks fully passing.
 import json
 
 from skillcard.harness import run_functional
+from skillcard.harness.functional import _extract_artifact
 
 GRADERS = '''
 def grade(task_id, text, cfg):
@@ -85,3 +86,28 @@ def test_no_functional_dir_returns_none(tmp_path):
     skill.mkdir()
     (skill / "SKILL.md").write_text("---\nname: bare\ndescription: x\n---\n")
     assert run_functional(skill, generate=lambda t: "") is None
+
+
+# --- artifact extraction: grade the deliverable, not the conversational wrapper ---
+
+def test_extract_artifact_prefers_written_file(tmp_path):
+    # The skill wrote its real deliverable; the wrapper prose is irrelevant.
+    (tmp_path / "README.md").write_text("# Real deliverable\nhello world\n")
+    out = _extract_artifact(tmp_path, "Sure! Here's your polished README!", "README.md")
+    assert out == "# Real deliverable\nhello world\n"
+
+
+def test_extract_artifact_falls_back_to_fenced_block(tmp_path):
+    # No file written: recover the README from the largest fenced block in stdout.
+    stdout = "Sure! Here's the README:\n\n```markdown\n# Title\nbody\n```\n\nEnjoy!"
+    assert _extract_artifact(tmp_path, stdout, "README.md") == "# Title\nbody\n"
+
+
+def test_extract_artifact_falls_back_to_raw_stdout(tmp_path):
+    # No file, no fence: degrade to raw stdout rather than crash.
+    assert _extract_artifact(tmp_path, "just prose", "README.md") == "just prose"
+
+
+def test_extract_artifact_ignores_empty_file(tmp_path):
+    (tmp_path / "README.md").write_text("   \n")
+    assert _extract_artifact(tmp_path, "fallback prose", "README.md") == "fallback prose"

@@ -70,8 +70,8 @@ def run_eval_command(args) -> int:
 
     func_out = None
     if not args.skip_functional:
-        print("eval: functional (generate + grade per task)...")
-        func_out = run_functional(skill_dir, model=args.model, timeout=max(args.timeout, 120))
+        print("eval: functional (full workflow + grade per task)...")
+        func_out = run_functional(skill_dir, model=args.model, timeout=max(args.timeout, 300))
 
     out_dir = Path(args.out) if args.out else skill_dir / "evals"
     today = datetime.date.today().isoformat()
