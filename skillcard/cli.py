@@ -10,7 +10,9 @@ Subcommands:
 * ``gate``      apply the SkillSpector score gate to a JSON report. Functional;
                 delegates to :mod:`skillcard.gate`.
 * ``hash``      compute the ``content_hash`` for a skill directory.
-* ``build``     (v2) generate a card from a skill directory. Stub.
+* ``build``     generate a card from a skill directory (discover -> build -> review).
+* ``eval``      run the trigger + functional metrics harness (live ``claude -p``) and
+                write ``evals/evals.json``. Spends tokens; never part of ``make check``.
 * ``badges``    (v2) emit shields.io endpoint JSON from a card. Stub.
 """
 
@@ -209,6 +211,29 @@ def main(argv: list[str] | None = None) -> int:
     )
     r.add_argument("skill_dir")
 
+    e = sub.add_parser(
+        "eval", help="run the triggering + functional metrics harness; write evals/evals.json"
+    )
+    e.add_argument("skill_dir")
+    e.add_argument("--model", default="claude-opus-4-8", help="model id for claude -p")
+    e.add_argument("--workers", type=int, default=4, help="parallel workers for the trigger eval")
+    e.add_argument("--runs-per-query", type=int, default=3, help="runs per query (for variance)")
+    e.add_argument("--timeout", type=int, default=60, help="per-call claude timeout (seconds)")
+    e.add_argument(
+        "--skip-functional", action="store_true",
+        help="run triggering only; writes NO results block (the beta path)",
+    )
+    e.add_argument(
+        "-o", "--out", default=None,
+        help="output dir for evals.json (default: <skill_dir>/evals); use a scratch dir to "
+        "avoid clobbering committed fixtures",
+    )
+    e.add_argument(
+        "--i-understand-this-spends-tokens", dest="ack", action="store_true",
+        help="required: confirms a live claude run (this command spends tokens)",
+    )
+    e.add_argument("--workspace-base", default=None, help=argparse.SUPPRESS)
+
     sub.add_parser("badges", help="(v2) emit shields.io endpoint JSON from a card")
 
     args = parser.parse_args(argv)
@@ -222,6 +247,10 @@ def main(argv: list[str] | None = None) -> int:
         return _cmd_build(args.skill_dir, args.report, args.out)
     if args.cmd == "review":
         return _cmd_review(args.skill_dir)
+    if args.cmd == "eval":
+        from skillcard.harness.command import run_eval_command  # noqa: PLC0415
+
+        return run_eval_command(args)
     return _cmd_stub(args.cmd)
 
 

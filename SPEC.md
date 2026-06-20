@@ -157,8 +157,9 @@ Module responsibilities:
 | `review.py` | Checklist of inferred-versus-HUMAN fields (`card-review.md`), fingerprint-bound to card.json; blocks `make check` until every HUMAN box is ticked. | functional |
 | `gate.py` | SARIF and JSON security policy enforcement. | functional |
 | `hashing.py` | `content_hash` over the skill's sorted source manifest. | functional |
+| `harness/` | The metrics harness `skillcard eval` runs: namespace-isolated trigger runner (ported fork) + functional orchestrator, assembled into `evals/evals.json`. Live `claude`; never in `make check`. | functional |
 | `badges.py` | Map `card.json` to shields.io endpoint JSON per metric. | stub |
-| `cli.py` | The `skillcard` entrypoint: validate (canonical `card.json` schema + `content_hash`), gate, hash, build, review; badges stub. | functional |
+| `cli.py` | The `skillcard` entrypoint: validate (canonical `card.json` schema + `content_hash`), gate, hash, build, review, eval; badges stub. | functional |
 | `schema.py` (in `schema/`) | The pydantic model; single source of truth. | functional |
 
 The generator runs after the description optimizer, so `description` and the
@@ -182,8 +183,20 @@ byte for byte.
 
 ## D. Metrics computation
 
-The harness reuses skill-creator's tooling as a thin wrapper and captures its
-JSON output into `card.json`.
+`skillcard eval <skill_dir>` runs the harness and writes the `results` block of
+`<skill_dir>/evals/evals.json` that `discover.py` reads. It is a wrapper, not a
+new runner: triggering reuses the **namespace-isolated fork** of skill-creator's
+`run_eval` (ported into `skillcard/harness/`; the fix for the parallel
+uuid-proxy contamination bug that produced false-low recall). Functional
+generates a README per dossier task via `claude -p` and grades it with the
+skill's own deterministic graders (`evals/functional/run_grader.py`) -- a
+single-shot generate-then-grade approximation whose absolute functional numbers
+are diagnostic (a lower bound), not an authoritative with-skill benchmark; the
+triggering numbers, by contrast, reproduce exactly. The two sub-blocks are
+written together or not at all (a `stable` card needs both;
+their absence is the beta path). `metrics.harness` records
+`skill-eval-fork@<sha> / <model> / <date>`. Real `claude` calls -> never part of
+`make check`; guarded behind an explicit token-spend ack.
 
 - Triggering set: 10 or more positive and 10 or more negative examples drawn
   from `triggers.*`, each negative naming a sibling skill.
@@ -367,15 +380,13 @@ Vectorize index. See [`worker/README.md`](worker/README.md).
 
 ## Open items (for v2)
 
-- The metrics *harness wrapper* (a separate v2 task). The generator already reads
-  its committed output: `discover.py` maps the `results` block of
-  `evals/evals.json` (`triggering.{precision,recall,near_miss_precision}`,
-  `functional.{eval_pass_rate,task_completion_rate}`, `harness`, optional notes)
-  into the scorecard, and treats a missing `results` block as the beta path
-  (no metrics). The harness wrapper that *writes* that block still has script
-  names to confirm against the installed skill-creator (`run_loop.py` confirmed;
-  `run_eval.py` prints results to stdout; `aggregate_benchmark.py` /
-  `generate_review.py` consume `grading.json` per run).
+- The metrics *harness wrapper* -- **delivered in v0.5.0** as `skillcard eval`
+  (SPEC §D), which ports the namespace-isolated `run_eval` fork and orchestrates
+  the functional graders. Confirmed skill-creator script names against the
+  installed plugin: `run_eval.py`, `run_loop.py`, `aggregate_benchmark.py`,
+  `generate_report.py` (and `eval-viewer/generate_review.py`). Still open: the
+  description optimizer (`run_loop`) is wired in the cabinets but not yet a
+  `skillcard` subcommand; the discover Worker.
 
 ## Locked decisions (2026-06-18; input layer refined 2026-06-19)
 
