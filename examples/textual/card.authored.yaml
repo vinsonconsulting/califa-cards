@@ -1,0 +1,16 @@
+# Authored governance overlay for the textual card (SPEC.md section C).
+# This sidecar is EXCLUDED from content_hash and from the git-scoped
+# source_commit, so editing status or a finding note never moves the skill's
+# code-identity hash. SKILL.md carries identity; this file carries governance.
+status: stable
+
+# Accept-and-note decisions, keyed by SkillSpector finding id. Each id the
+# MEDIUM band would flag must be accepted here with a non-empty justification.
+accepted_findings:
+  - id: AST4
+    note: "subprocess invokes textual run and pytest; scoped to the workspace and documented in SKILL.md"
+
+# Provenance pins keep this fixture's card.json deterministic (a real skill omits
+# these and derives both from the last commit touching its source files).
+source_commit: "9f3a1c2"
+updated: "2026-06-18"

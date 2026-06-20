@@ -28,10 +28,11 @@ There are two kinds of thing in this world, and Califa is the first kind.
 - **The framework (this repo).** The normative spec, the pydantic schema, the
   security gate, the generator tooling, the discover Worker design, and the CI
   templates. This is the standard and the machinery.
-- **The cards (the cabinets).** Each skill in a cabinet carries a
-  `skill-card.md` (human view) plus a 1:1 `card.json` (machine view) next to its
-  `SKILL.md`. The cabinets consume Califa as a development dependency; they do
-  not vendor a copy of the rules.
+- **The cards (the cabinets).** Each skill in a cabinet carries a canonical
+  `card.json` (machine view) plus its rendered `skill-card.md` (human view),
+  generated from the `SKILL.md` identity frontmatter and a `card.authored.yaml`
+  governance sidecar. The cabinets consume Califa as a development dependency;
+  they do not vendor a copy of the rules.
 
 `jims-filing-cabinet-of-claude-skills` (public) and
 `jims-secret-cabinet-of-mysteries` (private) are the first two consumers.
@@ -42,8 +43,8 @@ There are two kinds of thing in this world, and Califa is the first kind.
 | --- | --- |
 | `schema/schema.py` | Functional. The pydantic v2 model of the standard (spec section A) and the single source of truth. |
 | `skillcard/gate.py` | Functional. The SkillSpector score gate (spec section E). |
-| `skillcard/cli.py` | `validate` and `gate` are functional; `build` and `badges` are v2 stubs. |
-| `examples/textual/` | The reference card, in both `skill-card.md` and `card.json` form. |
+| `skillcard/cli.py` | `validate`, `gate`, `hash`, `build`, and `review` are functional; `badges` is a v2 stub. |
+| `examples/textual/` | The reference card: authored `SKILL.md` + `card.authored.yaml` inputs, and the generated `card.json` / `skill-card.md`. |
 | Generator modules, discover Worker | Documented stubs for v2 (spec sections C, G, H). |
 
 ## 🗝️ Quickstart: how a cabinet consumes Califa
@@ -60,7 +61,7 @@ skillcard validate skills/tui/textual/card.json
 
 # Scan a skill and gate the result. The gate reads the JSON report.
 skillspector scan skills/tui/textual --no-llm --format json --output report.json
-skillcard gate report.json --card skills/tui/textual/skill-card.md
+skillcard gate report.json --card skills/tui/textual/card.json
 ```
 
 For CI, copy [`ci/skill-card-scan.yml`](ci/skill-card-scan.yml) into the

@@ -5,12 +5,16 @@ Functional modules:
 * :mod:`skillcard.gate` -- the SkillSpector score gate used by ``make check``.
 * :mod:`skillcard.hashing` -- the source ``content_hash``.
 * :mod:`skillcard.discover` -- walk a skill dir into a card context.
-* :mod:`skillcard.render` -- Jinja render of a card to ``skill-card.md``.
-* :mod:`skillcard.build_card` -- validate, serialize, and write the card pair.
+* :mod:`skillcard.render` -- render a card to ``skill-card.md`` (readable-YAML
+  frontmatter + Jinja body); one-way, the view is never parsed back.
+* :mod:`skillcard.build_card` -- validate, serialize the canonical ``card.json``,
+  and render its view.
 * :mod:`skillcard.review` -- the inferred-vs-HUMAN sign-off gate.
 * :mod:`skillcard.cli` -- the ``skillcard`` entrypoint (validate, gate, hash,
   build, review; badges remains a v2 stub).
 
-The deterministic generator (discover -> build -> render -> review) lands in
-v0.3.0; see SPEC.md sections C and H. :mod:`skillcard.badges` is still a stub.
+The deterministic generator (discover -> build -> render -> review) landed in
+v0.3.0; v0.4.0 moved authored governance to a ``card.authored.yaml`` sidecar so
+it no longer affects ``content_hash``. See SPEC.md sections C and H.
+:mod:`skillcard.badges` is still a stub.
 """

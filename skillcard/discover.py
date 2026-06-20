@@ -3,9 +3,15 @@
 The first stage of the generator chain: a *pure read* of a skill bundle into the
 card dict that :mod:`skillcard.build_card` validates and writes. Sources:
 
-* ``SKILL.md`` frontmatter -- ``name``/``version``/``description`` plus an
-  authored ``card:`` block (the fields a generator cannot infer: summary,
-  triggers, output, dependencies, permissions, status, finding decisions).
+* ``SKILL.md`` frontmatter -- the skill's *identity*, all hashed: name, version,
+  description, summary, triggers, inputs, output, dependencies, and the security
+  surface (external_endpoints, permissions), plus card_version. These describe
+  what the skill *is*, so they live on the hashed surface.
+* ``card.authored.yaml`` (per-skill sidecar, NOT hashed) -- the authored
+  *governance* overlay a human signs off on but which must not move the
+  code-identity hash: status, accepted_findings (accept-and-note keyed by
+  SkillSpector finding id), metrics_notes, and optional source_commit/updated
+  provenance pins for self-contained fixtures.
 * ``.skillcard.toml`` (nearest, walking up) -- repo config shared across a
   cabinet: owner, repo tier/url, license, homepage, the scanner pin.
 * the SkillSpector JSON report (``report.json`` or committed ``scan.json``) --
@@ -13,7 +19,7 @@ card dict that :mod:`skillcard.build_card` validates and writes. Sources:
 * ``evals/evals.json`` -- a ``results`` block becomes the metrics scorecard;
   its absence is the beta path (no metrics).
 * git + :mod:`skillcard.hashing` -- provenance (``source_commit``, ``updated``,
-  ``content_hash``), unless the ``card:`` block pins commit/date for a fixture.
+  ``content_hash``), unless the sidecar pins commit/date for a fixture.
 
 discover leaves genuinely missing required fields *absent* rather than guessing,
 so build_card's schema validation is the single, clear refusal point.
@@ -62,6 +68,28 @@ def _read_skill_md(skill_dir: Path) -> dict[str, Any]:
     if not skill_md.exists():
         raise FileNotFoundError(f"{skill_dir}: no SKILL.md to discover")
     return parse_frontmatter(skill_md.read_text(encoding="utf-8"))
+
+
+def _read_sidecar(skill_dir: Path) -> dict[str, Any]:
+    """Parse the authored governance sidecar ``card.authored.yaml``; {} if absent.
+
+    The sidecar is excluded from ``content_hash`` (see hashing.EXCLUDE_NAMES), so
+    nothing it carries -- status, accepted-finding notes, provenance pins --
+    moves the code-identity hash. A missing sidecar is not an error here: the
+    required ``status`` simply stays absent, so build_card's schema validation is
+    the single refusal point (same contract as a missing authored field).
+    """
+    sidecar = skill_dir / "card.authored.yaml"
+    if not sidecar.exists():
+        return {}
+    import yaml  # noqa: PLC0415
+
+    data = yaml.safe_load(sidecar.read_text(encoding="utf-8"))
+    if data is None:
+        return {}
+    if not isinstance(data, dict):
+        raise ValueError(f"{sidecar}: card.authored.yaml must parse to a mapping")
+    return data
 
 
 def _read_repo_config(skill_dir: Path) -> dict[str, Any]:
@@ -128,7 +156,7 @@ def _scan(skill_dir: Path, report: dict[str, Any], cfg: dict[str, Any],
     }
 
 
-def _metrics(skill_dir: Path, card_block: dict[str, Any]) -> dict[str, Any] | None:
+def _metrics(skill_dir: Path, sidecar: dict[str, Any]) -> dict[str, Any] | None:
     evals_path = skill_dir / "evals" / "evals.json"
     if not evals_path.exists():
         return None
@@ -138,7 +166,7 @@ def _metrics(skill_dir: Path, card_block: dict[str, Any]) -> dict[str, Any] | No
     trig = results.get("triggering", {})
     func = results.get("functional", {})
     harness = results.get("harness") or trig.get("harness", "")
-    notes = card_block.get("metrics_notes") or trig.get("note") or func.get("note")
+    notes = sidecar.get("metrics_notes") or trig.get("note") or func.get("note")
     metrics = {
         "trigger_precision": trig.get("precision"),
         "trigger_recall": trig.get("recall"),
@@ -181,13 +209,13 @@ def _git_facts(skill_dir: Path) -> tuple[str | None, str | None]:
 
 def discover(skill_dir: str | Path, report_path: str | Path | None = None) -> DiscoverResult:
     skill_dir = Path(skill_dir)
-    skill_md = _read_skill_md(skill_dir)
-    card_block: dict[str, Any] = skill_md.get("card") or {}
+    skill_md = _read_skill_md(skill_dir)  # identity surface (hashed)
+    sidecar = _read_sidecar(skill_dir)  # governance overlay (not hashed)
     cfg = _read_repo_config(skill_dir)
-    decisions = card_block.get("findings") or {}
+    decisions = _finding_decisions(sidecar)
 
-    pinned_commit = card_block.get("source_commit")
-    pinned_updated = card_block.get("updated")
+    pinned_commit = sidecar.get("source_commit")
+    pinned_updated = sidecar.get("updated")
     git_commit, git_date = _git_facts(skill_dir)
     source_commit = pinned_commit or git_commit
     updated = pinned_updated or git_date
@@ -196,7 +224,7 @@ def discover(skill_dir: str | Path, report_path: str | Path | None = None) -> Di
         # identity and provenance
         "name": skill_md.get("name"),
         "version": _as_str(skill_md.get("version")),
-        "summary": card_block.get("summary"),
+        "summary": skill_md.get("summary"),
         "owner": cfg.get("owner"),
         "repo": {"tier": cfg.get("tier"), "url": cfg.get("url")},
         "license": cfg.get("license"),
@@ -205,24 +233,42 @@ def discover(skill_dir: str | Path, report_path: str | Path | None = None) -> Di
         "content_hash": content_hash(skill_dir),
         # capability and behavior
         "description": _scalar(skill_md.get("description")),
-        "triggers": card_block.get("triggers"),
-        "inputs": card_block.get("inputs"),
-        "output": card_block.get("output"),
-        "dependencies": card_block.get("dependencies"),
-        "external_endpoints": card_block.get("external_endpoints"),
-        "permissions": card_block.get("permissions"),
+        "triggers": skill_md.get("triggers"),
+        "inputs": skill_md.get("inputs"),
+        "output": skill_md.get("output"),
+        "dependencies": skill_md.get("dependencies"),
+        "external_endpoints": skill_md.get("external_endpoints"),
+        "permissions": skill_md.get("permissions"),
         # quality scorecard
-        "metrics": _metrics(skill_dir, card_block),
+        "metrics": _metrics(skill_dir, sidecar),
         # security
         "scan": _scan(skill_dir, _find_report(skill_dir, report_path), cfg, decisions),
         # lifecycle
-        "status": card_block.get("status"),
-        "card_version": _as_str(card_block.get("card_version", "1.0")),
+        "status": sidecar.get("status"),
+        "card_version": _as_str(skill_md.get("card_version", "1.0")),
         "updated": updated,
     }
 
     provenance = {key: ("human" if key in HUMAN_FIELDS else "inferred") for key in card}
     return DiscoverResult(skill_dir=skill_dir, card=card, provenance=provenance)
+
+
+def _finding_decisions(sidecar: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """Index the sidecar's ``accepted_findings`` list by SkillSpector finding id.
+
+    Each ``{id, note}`` entry is an accept-and-note decision: ``_scan`` looks the
+    id up (via ``gate._rule_id``) and stamps ``status: accepted`` plus the note
+    onto the matching finding. Anything not listed defaults to ``resolved``.
+    """
+    decisions: dict[str, dict[str, Any]] = {}
+    for entry in sidecar.get("accepted_findings") or []:
+        if not isinstance(entry, dict) or "id" not in entry:
+            raise ValueError(
+                "card.authored.yaml: each accepted_findings entry needs an `id` "
+                f"(got {entry!r})"
+            )
+        decisions[str(entry["id"])] = {"status": "accepted", "note": entry.get("note")}
+    return decisions
 
 
 def _scalar(value: Any) -> Any:

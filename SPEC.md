@@ -9,13 +9,16 @@ ever disagree.
 
 Califa Cards (this repo) owns the normative spec, the pydantic schema, the
 generator tooling, the security gate, the discover Worker, the CI templates,
-and the badge tooling. The two cabinets keep a per-skill `skill-card.md` plus
-its derived `card.json` next to each `SKILL.md`, and they consume Califa as a
-development dependency.
+and the badge tooling. The two cabinets keep a per-skill `card.json` plus its
+rendered `skill-card.md` view next to each `SKILL.md`, and they consume Califa as
+a development dependency.
 
-Canonical format: `skill-card.md` (YAML frontmatter, the human view) is the
-source. `card.json` is derived from it 1:1 and is the machine view that the
-Worker indexes. One source, JSON derived.
+Canonical format (refined 2026-06-19): authored inputs — `SKILL.md` frontmatter
+for *identity* and a `card.authored.yaml` sidecar for *governance* — generate
+`card.json`, the canonical machine payload the Worker indexes, which renders
+one-way to `skill-card.md`, the human view. The pipeline is one-directional:
+inputs → `card.json` → `skill-card.md`. The view is never parsed back, so it
+optimizes for readability rather than round-trip fidelity.
 
 ---
 
@@ -36,7 +39,7 @@ allowed so `card_version: 1.0` is valid).
 | `repo` | R | object | `{tier: public \| private, url}`. |
 | `license` | R | SPDX string | For example MIT, Apache-2.0. |
 | `homepage` | O | URL | Optional link. |
-| `source_commit` | R | git SHA | The commit the card describes. |
+| `source_commit` | R | git SHA | The commit the card describes; from git (source-scoped) or a `card.authored.yaml` pin. |
 | `content_hash` | R | string | SHA256 over the sorted file manifest (algorithm below). |
 | `signature` | O | object | Path to `skill.oms.sig` plus a cert reference (v3+). |
 
@@ -44,8 +47,10 @@ The `content_hash` is computed by `skillcard hash <skill-dir>` and re-verified b
 `skillcard validate <skill-dir>`. Algorithm (normative):
 
 1. Walk the skill directory recursively for regular files, **excluding** the
-   generated artifacts `skill-card.md`, `card.json`, `scan.json`, `report.sarif`
-   (so the hash never references itself) and the noise paths `.DS_Store`,
+   generated artifacts `skill-card.md`, `card.json`, `card-review.md`,
+   `scan.json`, `report.json`, `report.sarif` (so the hash never references
+   itself), the authored governance sidecar `card.authored.yaml` (governance is
+   overlay, not the code the hash describes), and the noise paths `.DS_Store`,
    `__pycache__/`, `.git/`.
 2. For each remaining file, form the line `<sha256-hex>␠␠<posix-relpath>` (two
    spaces, `sha256sum` style), where the path is relative to the skill dir.
@@ -120,10 +125,13 @@ a schema validation, so that committed example cards do not expire.
 
 ## B. Worked example
 
-The reference card is the `textual` skill. The canonical source is
-[`examples/textual/skill-card.md`](examples/textual/skill-card.md) and its 1:1
-derivation is [`examples/textual/card.json`](examples/textual/card.json). Both
-validate against `schema/schema.py`; the test suite asserts they agree.
+The reference card is the `textual` skill. Its authored inputs are
+[`examples/textual/SKILL.md`](examples/textual/SKILL.md) (identity) and
+[`examples/textual/card.authored.yaml`](examples/textual/card.authored.yaml)
+(governance); they generate the canonical
+[`examples/textual/card.json`](examples/textual/card.json), which renders to the
+[`examples/textual/skill-card.md`](examples/textual/skill-card.md) view. The test
+suite regenerates `card.json` and `skill-card.md` byte for byte.
 
 The trilogy (ratatui, bubbletea, textual) shares reference filenames and eval
 ids, so cross-framework metric diffs become available once the harness writes
@@ -141,16 +149,16 @@ apply best description -> skillspector scan -> skillcard build -> skillcard revi
 
 Module responsibilities:
 
-| Module | Role | status (v0.3.0) |
+| Module | Role | status (v0.4.0) |
 | --- | --- | --- |
-| `discover.py` | Walk a skill dir into a card context + per-field provenance: SKILL.md frontmatter (the authored `card:` block), `.skillcard.toml` repo config, the SkillSpector JSON report (`report.json`/`scan.json`), `evals/evals.json` results, and git + hashing. | functional |
-| `build_card.py` | Assemble and validate against `schema.py`; refuse on missing or mistyped required fields, naming them; write `card.json` plus `skill-card.md`, asserting the two agree 1:1. Idempotent. | functional |
-| `render.py` | Jinja render of a card to `skill-card.md` via `templates/skill-card.md.j2` (every frontmatter leaf JSON-encoded so it round-trips). | functional |
+| `discover.py` | Walk a skill dir into a card context + per-field provenance: `SKILL.md` frontmatter (identity, hashed), the `card.authored.yaml` sidecar (governance overlay, not hashed), `.skillcard.toml` repo config, the SkillSpector JSON report (`report.json`/`scan.json`), `evals/evals.json` results, and git + hashing. | functional |
+| `build_card.py` | Assemble and validate against `schema.py`; refuse on missing or mistyped required fields (including the sidecar-sourced `status`), naming them; write the canonical `card.json` plus its rendered `skill-card.md` view. One-way and idempotent. | functional |
+| `render.py` | Render a card to `skill-card.md`: readable-YAML frontmatter (`yaml.safe_dump`) plus a Jinja body via `templates/skill-card.md.j2`. One-way; the md is never parsed back. | functional |
 | `review.py` | Checklist of inferred-versus-HUMAN fields (`card-review.md`), fingerprint-bound to card.json; blocks `make check` until every HUMAN box is ticked. | functional |
 | `gate.py` | SARIF and JSON security policy enforcement. | functional |
 | `hashing.py` | `content_hash` over the skill's sorted source manifest. | functional |
 | `badges.py` | Map `card.json` to shields.io endpoint JSON per metric. | stub |
-| `cli.py` | The `skillcard` entrypoint: validate (schema + agreement + content_hash), gate, hash, build, review; badges stub. | functional |
+| `cli.py` | The `skillcard` entrypoint: validate (canonical `card.json` schema + `content_hash`), gate, hash, build, review; badges stub. | functional |
 | `schema.py` (in `schema/`) | The pydantic model; single source of truth. | functional |
 
 The generator runs after the description optimizer, so `description` and the
@@ -160,11 +168,15 @@ skill-creator.
 
 Determinism: `source_commit` and `updated` come from the last commit touching
 the skill's *source* files (so committing the generated card never advances
-them), or a `card:`-block pin for a self-contained fixture; `content_hash`
-excludes the generated artifacts; `card.json` is `json.dumps(indent=2)` in schema
-order. Re-running `skillcard build` on an unchanged skill is byte-identical.
-The worked example in section B (`examples/textual/`) is the in-repo regression
-gate: it carries its own source inputs and regenerates byte for byte.
+them), or a `card.authored.yaml` pin for a self-contained fixture; `content_hash`
+excludes the generated artifacts **and the governance sidecar**; `card.json` is
+`json.dumps(indent=2)` in schema order. Because the sidecar is outside both the
+hash manifest and the source-scoped commit, editing a governance field (status,
+a finding decision) never moves `content_hash` or `source_commit` — only the
+identity bytes in `SKILL.md` do. Re-running `skillcard build` on an unchanged
+skill is byte-identical. The worked example in section B (`examples/textual/`) is
+the in-repo regression gate: it carries its own source inputs and regenerates
+byte for byte.
 
 ---
 
@@ -365,9 +377,11 @@ Vectorize index. See [`worker/README.md`](worker/README.md).
   `run_eval.py` prints results to stdout; `aggregate_benchmark.py` /
   `generate_review.py` consume `grading.json` per run).
 
-## Locked decisions (2026-06-18)
+## Locked decisions (2026-06-18; input layer refined 2026-06-19)
 
-- Canonical format: `skill-card.md` (YAML frontmatter) plus a 1:1 `card.json`.
+- Canonical format: authored `SKILL.md` frontmatter (identity, hashed) + a
+  `card.authored.yaml` sidecar (governance, not hashed) generate the canonical
+  `card.json`, which renders one-way to the `skill-card.md` view.
 - Slug convention: kebab-case for the directory and `name`.
 - Generator: built in-house; do not fork NVIDIA's generator or extend
   skill-creator.

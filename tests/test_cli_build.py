@@ -9,38 +9,44 @@ import yaml
 
 from skillcard import cli
 
-SKILL_MD = {
+# SKILL.md frontmatter (identity) + card.authored.yaml sidecar (governance).
+IDENTITY = {
     "name": "demo",
     "version": "0.1.0",
     "description": "A demo skill used in tests. Use when testing the generator.",
-    "card": {
-        "summary": "A demo skill.",
-        "status": "beta",
-        "source_commit": "abc1234",
-        "updated": "2026-06-18",
-        "output": {"type": "Code", "format": "Markdown"},
-        "dependencies": ["python>=3.12"],
-        "external_endpoints": "none",
-        "permissions": {"network": False, "shell": False, "file": True, "env": False, "mcp": False},
-        "triggers": {
-            "positive": ["do the demo thing"],
-            "negative": [{"prompt": "do a different thing", "use_instead": "other-skill"}],
-        },
+    "summary": "A demo skill.",
+    "output": {"type": "Code", "format": "Markdown"},
+    "dependencies": ["python>=3.12"],
+    "external_endpoints": "none",
+    "permissions": {"network": False, "shell": False, "file": True, "env": False, "mcp": False},
+    "card_version": "1.0",
+    "triggers": {
+        "positive": ["do the demo thing"],
+        "negative": [{"prompt": "do a different thing", "use_instead": "other-skill"}],
     },
 }
+SIDECAR = {"status": "beta", "source_commit": "abc1234", "updated": "2026-06-18"}
 REPO_CFG = 'owner = "@me"\ntier = "public"\nurl = "https://example.com/repo"\nlicense = "MIT"\n'
 SCAN = {"risk_assessment": {"score": 0}, "skill": {"scanned_at": "2026-06-17T00:00:00Z"},
         "issues": [], "metadata": {"skillspector_version": "2.2.3"}}
 
 
-def _make_skill(tmp_path: Path, card_overrides: dict | None = None) -> Path:
+def _make_skill(
+    tmp_path: Path, identity_overrides: dict | None = None, sidecar_overrides: dict | None = None
+) -> Path:
     skill = tmp_path / "demo"
     skill.mkdir()
-    md = json.loads(json.dumps(SKILL_MD))
-    if card_overrides:
-        md["card"].update(card_overrides)
+    ident = json.loads(json.dumps(IDENTITY))
+    if identity_overrides:
+        ident.update(identity_overrides)
+    side = json.loads(json.dumps(SIDECAR))
+    if sidecar_overrides:
+        side.update(sidecar_overrides)
     (skill / "SKILL.md").write_text(
-        "---\n" + yaml.safe_dump(md, sort_keys=False) + "---\n# demo\n", encoding="utf-8"
+        "---\n" + yaml.safe_dump(ident, sort_keys=False) + "---\n# demo\n", encoding="utf-8"
+    )
+    (skill / "card.authored.yaml").write_text(
+        yaml.safe_dump(side, sort_keys=False), encoding="utf-8"
     )
     (skill / ".skillcard.toml").write_text(REPO_CFG, encoding="utf-8")
     (skill / "scan.json").write_text(json.dumps(SCAN), encoding="utf-8")
@@ -75,11 +81,21 @@ def test_review_passes_after_ticking(tmp_path):
 
 
 def test_build_refuses_missing_authored_field(tmp_path, capsys):
-    # Drop an authored required field: build must refuse, naming it, writing nothing.
-    skill = _make_skill(tmp_path, card_overrides={"permissions": None})
+    # Drop an identity required field: build must refuse, naming it, writing nothing.
+    skill = _make_skill(tmp_path, identity_overrides={"permissions": None})
     code = cli.main(["build", str(skill)])
     assert code == 1
     assert "permissions" in capsys.readouterr().out
+    assert not (skill / "card.json").exists()
+
+
+def test_build_refuses_missing_sidecar_status(tmp_path, capsys):
+    # status lives only in the sidecar; dropping it surfaces as a clear refusal.
+    skill = _make_skill(tmp_path)
+    (skill / "card.authored.yaml").unlink()
+    code = cli.main(["build", str(skill)])
+    assert code == 1
+    assert "status" in capsys.readouterr().out
     assert not (skill / "card.json").exists()
 
 
