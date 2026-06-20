@@ -10,7 +10,7 @@
   "license": "MIT",
   "homepage": null,
   "source_commit": "9f3a1c2",
-  "content_hash": "sha256:115aa2d36568604e00dac60c2b13666db39d975b77b28a5312a3bba8a1ae2e0e",
+  "content_hash": "sha256:45fa1bfd55b7a3985acc9fa799387a815a02d2d9695589385d4a1fd8f796a155",
   "signature": null,
   "description": "Build, style, and debug terminal user interfaces in Python with Textual. Use when the user mentions Textual, a TUI, App/Widget/Screen subclasses, reactive attributes, TCSS or Textual CSS, `textual run`, `textual console`, or compose(). Do NOT use for plain CLI argument parsing (use click-cli), Rich-only static output (use rich-render), or curses (use curses).",
   "triggers": {

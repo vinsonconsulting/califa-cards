@@ -1,8 +1,10 @@
-"""Render tests: the Jinja template is a pure, round-tripping function of a card.
+"""Render tests: the template is a deterministic, one-way function of a card.
 
-The frontmatter the template emits is the canonical machine payload, so parsing
-it back must reproduce the card exactly (the md/json 1:1 contract). The body is
-the human view: deterministic sections derived only from card fields.
+skill-card.md is a *view* of card.json, not a second source: ``json -> md`` is
+deterministic (guarded byte-for-byte by test_examples), but the md is never
+parsed back, so there is no md/json parity contract. The frontmatter is readable
+YAML; the body is deterministic sections derived only from card fields. The
+parses below are convenience spot-checks on specific values, not parity asserts.
 """
 
 from __future__ import annotations
@@ -10,7 +12,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from schema.schema import SkillCard
 from skillcard.cli import parse_frontmatter
 from skillcard.render import render
 
@@ -22,16 +23,19 @@ def _card() -> dict:
     return json.loads(TEXTUAL_JSON.read_text(encoding="utf-8"))
 
 
-def _roundtrip(card: dict) -> dict:
-    """Render, then parse the frontmatter back to a validated model_dump."""
-    md = render(card)
-    front = parse_frontmatter(md)
-    return SkillCard.model_validate(front).model_dump()
+def _front(card: dict) -> dict:
+    """Parse the rendered frontmatter back to a dict (for value spot-checks)."""
+    return parse_frontmatter(render(card))
 
 
-def test_frontmatter_roundtrips_one_to_one():
-    card = _card()
-    assert _roundtrip(card) == SkillCard.model_validate(card).model_dump()
+def test_frontmatter_is_readable_yaml_not_json_leaves():
+    # The JSON-leaf encoding is gone: collections render as block-style YAML, not
+    # inline JSON objects. permissions is a nested mapping in the frontmatter.
+    md = render(_card())
+    front, _ = md.split("\n---", 1)
+    assert "permissions:\n" in front  # block mapping, with children on their own lines
+    assert "  network: false" in front
+    assert '{ "' not in front and "{ network:" not in front  # no JSON / inline-flow leaves
 
 
 def test_body_has_deterministic_sections():
@@ -45,18 +49,17 @@ def test_body_has_deterministic_sections():
 
 
 def test_null_finding_fields_render_as_yaml_null():
-    # owasp is null on the AST4 finding; it must round-trip to None, not "None".
-    card = _card()
-    front = parse_frontmatter(render(card))
+    # owasp is null on the AST4 finding; it must render as YAML null, not "None".
+    front = _front(_card())
     assert front["scan"]["findings"][0]["owasp"] is None
     assert front["scan"]["findings"][0]["atlas"] == "AML.T0050"
 
 
-def test_metrics_notes_renders_when_present():
+def test_metrics_notes_renders_in_frontmatter_and_body():
     card = _card()
     card["metrics"]["notes"] = "recall is a harness-floor artifact: not a capability signal"
     md = render(card)
-    assert _roundtrip(card)["metrics"]["notes"] == card["metrics"]["notes"]
+    assert _front(card)["metrics"]["notes"] == card["metrics"]["notes"]
     assert "harness-floor artifact" in md  # surfaced as a body caveat too
 
 
@@ -65,18 +68,15 @@ def test_beta_path_omits_metrics_block_and_scorecard():
     card["status"] = "beta"
     card["metrics"] = None
     md = render(card)
-    front = parse_frontmatter(md)
-    assert front["metrics"] is None
-    assert SkillCard.model_validate(front).metrics is None
+    assert _front(card)["metrics"] is None  # explicit `metrics: null` in the view
     assert "## Quality scorecard" not in md  # no scorecard without metrics
     assert "## Security" in md  # scan is always present
 
 
 def test_empty_findings_render_as_list_not_null():
-    # A clean scan (score 0, no findings) must emit findings: [] so it validates.
+    # A clean scan (score 0, no findings) must emit findings: [] so it reads cleanly.
     card = _card()
     card["scan"]["score"] = 0
     card["scan"]["severity"] = "LOW"
     card["scan"]["findings"] = []
-    front = parse_frontmatter(render(card))
-    assert front["scan"]["findings"] == []
+    assert _front(card)["scan"]["findings"] == []

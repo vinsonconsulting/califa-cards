@@ -193,8 +193,9 @@ def _load_card(path: str | None) -> dict[str, Any] | None:
         return None
     if path.endswith(".json"):
         return _load_json(path)
-    # Lazy import so the gate has no hard dependency on PyYAML unless a
-    # skill-card.md is passed as the card.
+    # card.json is the canonical card; a skill-card.md view still parses (its
+    # scan.findings carry the same rule_id/status/note), so it is accepted as a
+    # fallback. Lazy import keeps PyYAML optional unless an .md is passed.
     from skillcard.cli import load_card_md  # noqa: PLC0415
 
     return load_card_md(path)
@@ -211,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--card",
         default=None,
-        help="optional skill-card (card.json or skill-card.md) supplying finding notes",
+        help="optional card.json (or a skill-card.md view) supplying accepted-finding notes",
     )
     parser.add_argument(
         "--warn-medium-without-card",

@@ -1,4 +1,4 @@
-"""build_card tests: validate, serialize, render, and agree 1:1 -- idempotently."""
+"""build_card tests: validate, serialize the canonical card.json, render its view."""
 
 from __future__ import annotations
 
@@ -9,7 +9,6 @@ import pytest
 
 from schema.schema import SkillCard
 from skillcard.build_card import BuildError, build_card
-from skillcard.cli import load_card_md
 
 REPO = Path(__file__).resolve().parents[1]
 TEXTUAL_JSON = REPO / "examples" / "textual" / "card.json"
@@ -19,12 +18,13 @@ def _card() -> dict:
     return json.loads(TEXTUAL_JSON.read_text(encoding="utf-8"))
 
 
-def test_writes_agreeing_card_json_and_md(tmp_path):
+def test_writes_canonical_card_json_and_view(tmp_path):
     build_card(_card(), tmp_path)
     js = SkillCard.model_validate(json.loads((tmp_path / "card.json").read_text()))
-    md = SkillCard.model_validate(load_card_md(str(tmp_path / "skill-card.md")))
-    assert js.model_dump() == md.model_dump()  # the 1:1 contract
-    assert js.name == "textual"
+    assert js.name == "textual"  # card.json is the canonical payload
+    md = (tmp_path / "skill-card.md").read_text(encoding="utf-8")
+    assert md.startswith("---\n")  # the view: readable-YAML frontmatter + body
+    assert "# textual <small>v1.2.0</small>" in md
 
 
 def test_card_json_is_canonical_and_newline_terminated(tmp_path):

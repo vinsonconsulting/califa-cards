@@ -2,16 +2,16 @@
 
 Takes the assembled card dict (from :mod:`skillcard.discover`), validates it
 against :class:`schema.schema.SkillCard` -- refusing on any missing or mistyped
-required field, naming it -- then writes both views so they agree 1:1:
+required field (including the sidecar-sourced ``status``), naming it -- then
+writes the canonical payload and its view:
 
 * ``card.json``     -- canonical machine payload: ``json.dumps(model_dump(json),
                        indent=2)`` with all null-optionals emitted, schema order.
-* ``skill-card.md`` -- the rendered human view (frontmatter + body).
+* ``skill-card.md`` -- the rendered human view (readable-YAML frontmatter + body).
 
-As a backstop, the rendered frontmatter is parsed back and compared to the
-validated card; a mismatch (a template defect) is a refusal, never a silent
-divergence. The whole thing is a pure function of its input, so re-running on an
-unchanged skill yields byte-identical output.
+The pipeline is one-way (``card.json`` is canonical; the md is never parsed back),
+so there is no md/json agreement backstop. The whole thing is a pure function of
+its input, so re-running on an unchanged skill yields byte-identical output.
 """
 
 from __future__ import annotations
@@ -23,13 +23,11 @@ from typing import Any
 from pydantic import ValidationError
 
 from schema.schema import SkillCard
-from skillcard.cli import parse_frontmatter
 from skillcard.render import render
 
 
 class BuildError(Exception):
-    """A card could not be built: a required field is missing/mistyped, or the
-    rendered md and card.json disagree."""
+    """A card could not be built: a required field is missing or mistyped."""
 
 
 def _format_validation_error(exc: ValidationError) -> str:
@@ -49,14 +47,6 @@ def build_card(card: dict[str, Any], out_dir: str | Path) -> SkillCard:
     data = validated.model_dump(mode="json")
     card_json = json.dumps(data, indent=2) + "\n"
     md = render(data)
-
-    # Backstop: the frontmatter must round-trip to the same card as card.json.
-    reparsed = SkillCard.model_validate(parse_frontmatter(md))
-    if reparsed.model_dump() != validated.model_dump():
-        raise BuildError(
-            "rendered skill-card.md frontmatter does not match card.json "
-            "(template defect): the two views must agree 1:1"
-        )
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)

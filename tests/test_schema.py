@@ -9,11 +9,9 @@ import pytest
 from pydantic import ValidationError
 
 from schema.schema import SkillCard
-from skillcard.cli import load_card
 
 REPO = Path(__file__).resolve().parents[1]
 CARD_JSON = REPO / "examples" / "textual" / "card.json"
-CARD_MD = REPO / "examples" / "textual" / "skill-card.md"
 
 
 def _valid_dict() -> dict:
@@ -25,20 +23,6 @@ def test_textual_card_json_is_valid():
     assert card.name == "textual"
     assert card.scan.severity == "LOW"
     assert card.external_endpoints == "none"
-
-
-def test_textual_skill_card_md_frontmatter_is_valid():
-    # The human-view frontmatter must validate against the same schema.
-    data = load_card(str(CARD_MD))
-    card = SkillCard.model_validate(data)
-    assert card.name == "textual"
-
-
-def test_md_and_json_agree():
-    # card.json is derived 1:1 from the skill-card.md frontmatter.
-    md = SkillCard.model_validate(load_card(str(CARD_MD)))
-    js = SkillCard.model_validate(_valid_dict())
-    assert md.model_dump() == js.model_dump()
 
 
 def test_missing_required_field_rejected():

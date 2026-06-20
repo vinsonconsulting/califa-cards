@@ -3,9 +3,10 @@
 Subcommands:
 
 * ``validate``  validate a card against :class:`schema.schema.SkillCard`. Given a
-                skill *directory* it runs the full provenance check: schema +
-                skill-card.md/card.json agreement + ``content_hash``. Given a lone
-                ``.md``/``.json`` file it schema-checks that file only.
+                skill *directory* it validates the canonical ``card.json`` and
+                verifies its ``content_hash`` against the skill's source files
+                (``skill-card.md`` is a one-way view, not parsed back). Given a
+                lone ``.md``/``.json`` file it schema-checks that file only.
 * ``gate``      apply the SkillSpector score gate to a JSON report. Functional;
                 delegates to :mod:`skillcard.gate`.
 * ``hash``      compute the ``content_hash`` for a skill directory.
@@ -26,11 +27,11 @@ from skillcard.hashing import content_hash
 
 
 def parse_frontmatter(text: str) -> dict[str, Any]:
-    """Parse the leading YAML frontmatter of a skill-card.md *string* into a dict.
+    """Parse the leading YAML frontmatter of a markdown *string* into a dict.
 
     Frontmatter is the block delimited by a leading ``---`` line and the next
-    ``---`` line. Shared by the file loader below and by ``build_card``'s
-    md/json agreement check. PyYAML is imported lazily so callers that only
+    ``---`` line. Used by :mod:`skillcard.discover` to read ``SKILL.md`` and by
+    the lone-file loaders below. PyYAML is imported lazily so callers that only
     touch card.json never need it installed.
     """
 
@@ -68,10 +69,10 @@ def load_card(path: str) -> dict[str, Any]:
 def _cmd_validate(path: str) -> int:
     """Validate a card.
 
-    A *directory* gets the full provenance check: validate skill-card.md and
-    card.json against the schema, assert they agree 1:1, and verify the declared
-    ``content_hash`` against the skill's source files. A lone ``.md``/``.json``
-    file is schema-checked only (backward compatible).
+    A *directory* validates the canonical ``card.json`` against the schema and
+    verifies its declared ``content_hash`` against the skill's source files.
+    ``skill-card.md`` is a one-way view and is not parsed back. A lone
+    ``.md``/``.json`` file is schema-checked only (backward compatible).
     """
 
     p = Path(path)
@@ -84,32 +85,19 @@ def _cmd_validate(path: str) -> int:
 
 
 def _validate_skill_dir(skill_dir: Path) -> int:
-    md_path = skill_dir / "skill-card.md"
     json_path = skill_dir / "card.json"
-    present = [p for p in (md_path, json_path) if p.exists()]
-    if not present:
-        raise ValueError(f"{skill_dir}: no skill-card.md or card.json to validate")
+    if not json_path.exists():
+        raise ValueError(f"{skill_dir}: no card.json to validate (run `skillcard build` first)")
 
-    cards: dict[str, SkillCard] = {}
-    for p in present:
-        data = load_card(str(p))
-        cards[p.name] = SkillCard.model_validate(data)
-        print(f"OK: {p} validates (card_version {data.get('card_version')})")
-
-    if md_path.name in cards and json_path.name in cards:
-        if cards[md_path.name].model_dump() != cards[json_path.name].model_dump():
-            print(f"FAIL: {skill_dir}: skill-card.md and card.json disagree (must be 1:1)")
-            return 1
-        print(f"OK: {md_path.name} and {json_path.name} agree")
+    data = load_card(str(json_path))
+    card = SkillCard.model_validate(data)
+    print(f"OK: {json_path} validates (card_version {data.get('card_version')})")
 
     actual = content_hash(skill_dir)
-    mismatched = {
-        name: card.content_hash for name, card in cards.items() if card.content_hash != actual
-    }
-    if mismatched:
+    if card.content_hash != actual:
         print(
             f"FAIL: {skill_dir}: content_hash mismatch — recomputed {actual}, "
-            f"card declares {mismatched}"
+            f"card declares {card.content_hash}"
         )
         return 1
     print(f"OK: content_hash matches ({actual})")
@@ -192,7 +180,11 @@ def main(argv: list[str] | None = None) -> int:
 
     g = sub.add_parser("gate", help="apply the security gate to a SkillSpector JSON report")
     g.add_argument("report")
-    g.add_argument("--card", default=None)
+    g.add_argument(
+        "--card",
+        default=None,
+        help="optional card.json supplying accepted-finding notes (the MEDIUM band needs them)",
+    )
     g.add_argument(
         "--warn-medium-without-card",
         action="store_true",

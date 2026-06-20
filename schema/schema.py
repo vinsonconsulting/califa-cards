@@ -5,8 +5,10 @@ standard. The cabinets' ``make check`` and the discover Worker's ingest
 validator both import :class:`SkillCard` from here, so a field change here is
 a change to the standard everywhere it is consumed.
 
-Canonical form is YAML frontmatter in ``skill-card.md`` (the human view),
-derived 1:1 to ``card.json`` (the machine view and Worker index payload).
+Canonical form is ``card.json`` (the machine view and Worker index payload),
+generated from authored inputs (``SKILL.md`` frontmatter for identity, a
+``card.authored.yaml`` sidecar for governance) and rendered one-way to the
+``skill-card.md`` human view.
 
 Required [R] fields are plain (no default); optional [O] fields default to
 ``None``. ``extra="forbid"`` rejects unknown keys at every level, so a typo'd
