@@ -31,7 +31,7 @@ endif
 
 .PHONY: dev lint test scan review eval check clean
 
-EVAL_WORKERS ?= 4
+EVAL_WORKERS ?= 1
 
 dev:
 	$(PY) -m venv $(VENV)
@@ -67,7 +67,7 @@ review:
 	done
 
 # Run the metrics harness for one skill: triggering + functional evals -> evals.json.
-# Usage: make eval SKILL=examples/textual [EVAL_WORKERS=4]
+# Usage: make eval SKILL=examples/textual [EVAL_WORKERS=N]  (serial by default)
 # Needs the `claude` CLI (real API calls, spends tokens); intentionally NOT in `check`.
 eval:
 	$(PYBIN) -m skillcard.cli eval $(SKILL) --workers $(EVAL_WORKERS) \

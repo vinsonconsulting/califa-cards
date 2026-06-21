@@ -30,7 +30,13 @@ from collections.abc import Callable
 from pathlib import Path
 
 from skillcard.harness.provenance import harness_provenance
-from skillcard.harness.trigger import claude_env, load_eval_set, parse_skill_md, run_eval
+from skillcard.harness.trigger import (
+    EvalIntegrityError,
+    claude_env,
+    load_eval_set,
+    parse_skill_md,
+    run_eval,
+)
 
 _DESC_RE = re.compile(r"<new_description>(.*?)</new_description>", re.DOTALL)
 
@@ -191,7 +197,7 @@ def run_optimize(
     skill_dir: str | Path,
     model: str | None,
     *,
-    workers: int = 4,
+    workers: int = 1,
     timeout: int = 60,
     runs_per_query: int = 3,
     max_iterations: int = 3,
@@ -302,7 +308,9 @@ def run_optimize_command(args) -> int:
             runs_per_query=args.runs_per_query, max_iterations=args.max_iterations,
             workspace_base=args.workspace_base,
         )
-    except ValueError as exc:
+    except (ValueError, EvalIntegrityError) as exc:
+        # EvalIntegrityError: a saturated measurement -- report cleanly and stop
+        # rather than optimize against floor numbers (or surface a raw traceback).
         print(f"FAIL: {exc}")
         return 1
 

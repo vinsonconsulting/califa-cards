@@ -18,6 +18,8 @@ from skillcard.harness.functional import run_functional
 from skillcard.harness.provenance import harness_provenance
 from skillcard.harness.trigger import (
     FORK_SHA,
+    CallResult,
+    EvalIntegrityError,
     is_trigger,
     load_eval_set,
     make_isolated_workspace,
@@ -27,6 +29,8 @@ from skillcard.harness.trigger import (
 
 __all__ = [
     "FORK_SHA",
+    "CallResult",
+    "EvalIntegrityError",
     "build_results_block",
     "harness_provenance",
     "is_trigger",
