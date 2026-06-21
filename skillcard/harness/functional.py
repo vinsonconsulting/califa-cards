@@ -39,10 +39,25 @@ import uuid
 from collections.abc import Callable
 from pathlib import Path
 
-from skillcard.harness.trigger import EVAL_WORKSPACE_ROOT, claude_env, parse_skill_md
+from skillcard.harness.trigger import (
+    CALL_FAILURE_ABORT_THRESHOLD,
+    EVAL_WORKSPACE_ROOT,
+    claude_env,
+    guard_call_failures,
+    parse_skill_md,
+)
 
 # A fenced code block, tolerating an info string after the opening backticks.
 _FENCE_RE = re.compile(r"```[^\n]*\n(.*?)```", re.DOTALL)
+
+
+class EvalCallError(RuntimeError):
+    """One functional generation call FAILED -- timed out, could not spawn, or
+    errored with no artifact on disk -- as opposed to a generation that produced a
+    low-scoring artifact. :func:`run_functional` counts these toward the
+    call-failure rate the collapse guard refuses on; a low grade on a real artifact
+    is never a failure.
+    """
 
 
 def _extract_artifact(workdir: Path, stdout: str, artifact_name: str) -> str:
@@ -106,10 +121,24 @@ def _generate_readme_live(
         cmd = ["claude", "-p", prompt, "--permission-mode", "bypassPermissions"]
         if model:
             cmd += ["--model", model]
-        proc = subprocess.run(
-            cmd, cwd=str(workdir), env=claude_env(),
-            capture_output=True, text=True, timeout=timeout,
+        try:
+            proc = subprocess.run(
+                cmd, cwd=str(workdir), env=claude_env(),
+                capture_output=True, text=True, timeout=timeout,
+            )
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            # Timed out / could not spawn -> an infrastructure call FAILURE, not a
+            # gradeable artifact.
+            raise EvalCallError(f"claude -p generation failed: {exc}") from exc
+        artifact = workdir / artifact_name
+        wrote_artifact = artifact.is_file() and bool(
+            artifact.read_text(encoding="utf-8").strip()
         )
+        if proc.returncode != 0 and not wrote_artifact:
+            # Non-zero exit AND nothing written -> a failed call. (A written file
+            # with a late non-zero exit is still graded -- the grader reads it
+            # regardless of exit code, so a real deliverable is never discarded.)
+            raise EvalCallError(f"claude -p exited {proc.returncode} with no artifact")
         return _extract_artifact(workdir, proc.stdout, artifact_name)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
@@ -143,6 +172,7 @@ def run_functional(
     timeout: int = 300,
     generate: Callable[[dict], str] | None = None,
     best_of: int = 1,
+    failure_threshold: float = CALL_FAILURE_ABORT_THRESHOLD,
 ) -> dict | None:
     """Run the functional set; return the aggregate, or None if the skill has none.
 
@@ -171,15 +201,37 @@ def run_functional(
     pass_rates: list[float] = []
     completions: list[float] = []
     per_task: list[dict] = []
+    calls_total = 0
+    calls_failed = 0
     for task in tasks:
         best: dict | None = None
         for _ in range(samples):
-            summary = _grade(skill_dir, task["id"], generate(task))
+            calls_total += 1
+            try:
+                artifact = generate(task)
+            except (EvalCallError, subprocess.TimeoutExpired, OSError) as exc:
+                # A FAILED generation (timeout / 429 / spawn), not a low score:
+                # count it and skip grading this sample.
+                calls_failed += 1
+                print(f"Warning: functional generation failed: {exc}", file=sys.stderr)
+                continue
+            summary = _grade(skill_dir, task["id"], artifact)
             if best is None or summary["pass_rate"] > best["pass_rate"]:
                 best = summary
-        pass_rates.append(best["pass_rate"])
-        completions.append(1.0 if best["passed"] == best["total"] else 0.0)
-        per_task.append({"id": task["id"], **best})
+        if best is None:
+            # Every sample of this task failed to generate: a 0.0 lower bound (the
+            # run-wide guard below usually refuses before this matters).
+            pass_rates.append(0.0)
+            completions.append(0.0)
+            per_task.append({"id": task["id"], "passed": 0, "total": 0,
+                             "pass_rate": 0.0, "failed": True})
+        else:
+            pass_rates.append(best["pass_rate"])
+            completions.append(1.0 if best["passed"] == best["total"] else 0.0)
+            per_task.append({"id": task["id"], **best})
+
+    # Refuse a saturated run before returning anything to be written.
+    guard_call_failures(calls_total, calls_failed, failure_threshold, "functional")
 
     n = len(pass_rates)
     return {
@@ -187,4 +239,6 @@ def run_functional(
         "task_completion_rate": sum(completions) / n if n else 0.0,
         "tasks_passed": f"{int(sum(completions))}/{n}",
         "per_task": per_task,
+        "calls_total": calls_total,
+        "calls_failed": calls_failed,
     }

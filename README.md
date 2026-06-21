@@ -93,6 +93,11 @@ skillcard optimize skills/tui/textual --i-understand-this-spends-tokens
 skillcard eval skills/tui/textual --i-understand-this-spends-tokens
 ```
 
+Both run the trigger eval **serially by default** (`--workers 1`) and refuse to
+record a run whose `claude -p` calls saturate the account rate limit; pass
+`--workers N` to parallelize (faster, but it can trip that guard when nested in a
+Claude Code session).
+
 ## Two things this build resolved
 
 - **The score is not in SARIF.** SkillSpector writes the 0 to 100 risk score

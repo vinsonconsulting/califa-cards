@@ -219,7 +219,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     e.add_argument("skill_dir")
     e.add_argument("--model", default="claude-opus-4-8", help="model id for claude -p")
-    e.add_argument("--workers", type=int, default=4, help="parallel workers for the trigger eval")
+    e.add_argument(
+        "--workers", type=int, default=1,
+        help="trigger-eval workers: serial (1) by default; pass >1 to parallelize "
+        "(faster, but can saturate the account rate limit when nested in a session)",
+    )
     e.add_argument("--runs-per-query", type=int, default=3, help="runs per query (for variance)")
     e.add_argument("--timeout", type=int, default=60, help="per-call claude timeout (seconds)")
     e.add_argument(
@@ -248,7 +252,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     o.add_argument("skill_dir")
     o.add_argument("--model", default="claude-opus-4-8", help="model id for claude -p")
-    o.add_argument("--workers", type=int, default=4, help="parallel workers for the trigger eval")
+    o.add_argument(
+        "--workers", type=int, default=1,
+        help="trigger-eval workers: serial (1) by default; pass >1 to parallelize "
+        "(faster, but can saturate the account rate limit when nested in a session)",
+    )
     o.add_argument("--runs-per-query", type=int, default=3, help="runs per query (for variance)")
     o.add_argument("--timeout", type=int, default=60, help="per-call claude timeout (seconds)")
     o.add_argument(

@@ -37,6 +37,7 @@ import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
+from typing import NamedTuple
 
 # Short SHA of the cabinet fork commit this runner was ported from (provenance).
 FORK_SHA = "ef6f952"
@@ -44,6 +45,53 @@ FORK_SHA = "ef6f952"
 # Per-run isolated workspaces live UNDER ~/ (never /tmp), per the harness's
 # workspace convention. Each run gets its own <uuid>/ subdir; we remove it after.
 EVAL_WORKSPACE_ROOT = Path.home() / ".cache" / "skill-eval-workspaces"
+
+
+class CallResult(NamedTuple):
+    """Outcome of one ``claude -p`` eval call.
+
+    ``triggered`` is the trigger decision; ``failed`` marks an INFRASTRUCTURE
+    failure (429 / rate-limit / network error / timeout / spawn error) as opposed
+    to a call that completed and simply did not trigger. The collapse guard keys
+    on ``failed`` -- never on a low score -- so a saturated run refuses while a
+    weak-but-honest skill still records.
+    """
+
+    triggered: bool
+    failed: bool
+
+
+class EvalIntegrityError(RuntimeError):
+    """Raised when too many eval calls FAILED to record a trustworthy measurement.
+
+    A rate-limited / errored / timed-out call produces no trigger and, counted as
+    a miss, drives false-low metrics. When the call-failure rate crosses
+    :data:`CALL_FAILURE_ABORT_THRESHOLD` the runner raises this instead of emitting
+    the floor, so nothing is written.
+    """
+
+
+# A run whose eval calls fail at or above this rate is rate-limit / error
+# saturation, not a measurement: a healthy run fails ~0 calls, so 0.2 leaves wide
+# margin yet catches the bursts (typically well above half) behind the floor
+# artifacts. A module constant -- tunable, not a CLI flag.
+CALL_FAILURE_ABORT_THRESHOLD = 0.2
+
+
+def guard_call_failures(total: int, failed: int, threshold: float, context: str) -> None:
+    """Raise :class:`EvalIntegrityError` when the call-failure rate is too high.
+
+    No-op when no calls ran (``total <= 0``) or the rate is below ``threshold``.
+    Keyed on call FAILURES (infrastructure), so a run whose calls all succeed --
+    even at a low score -- never trips this.
+    """
+    if total <= 0:
+        return
+    if failed / total >= threshold:
+        raise EvalIntegrityError(
+            f"{failed} of {total} {context} calls failed (rate-limit / errors) -- "
+            f"not a valid measurement; reduce load or retry later (ensure --workers 1)."
+        )
 
 
 def parse_skill_md(skill_path: str | Path) -> tuple[str, str, str]:
@@ -143,6 +191,83 @@ def load_eval_set(path: str | Path) -> list[dict]:
     return data
 
 
+class _StreamDecider:
+    """Incrementally parse ``claude -p`` stream-json lines into a trigger decision.
+
+    ``feed(buffer)`` consumes the complete lines in ``buffer`` and returns
+    ``(decision, remaining)``: ``decision`` is ``True``/``False`` once a decisive
+    event is seen (a first tool choice, ``message_stop``, the terminal ``result``)
+    and ``None`` while more data is needed. Pending-tool state carries across feeds,
+    so a decision split over chunks -- or arriving only in the final post-exit tail
+    (the poll-break path) -- is still detected rather than mis-scored as a miss.
+    """
+
+    def __init__(self, skill_name: str) -> None:
+        self.skill_name = skill_name
+        self.pending_tool_name: str | None = None
+        self.accumulated_json = ""
+
+    def feed(self, buffer: str) -> tuple[bool | None, str]:
+        while "\n" in buffer:
+            line, buffer = buffer.split("\n", 1)
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            decision = self._handle(event)
+            if decision is not None:
+                return decision, buffer
+        return None, buffer
+
+    def _handle(self, event: dict) -> bool | None:
+        etype = event.get("type")
+        if etype == "stream_event":
+            se = event.get("event", {})
+            se_type = se.get("type", "")
+            if se_type == "content_block_start":
+                cb = se.get("content_block", {})
+                if cb.get("type") == "tool_use":
+                    tool_name = cb.get("name", "")
+                    if tool_name in ("Skill", "Read"):
+                        self.pending_tool_name = tool_name
+                        self.accumulated_json = ""
+                    else:
+                        return False
+            elif se_type == "content_block_delta" and self.pending_tool_name:
+                delta = se.get("delta", {})
+                if delta.get("type") == "input_json_delta":
+                    self.accumulated_json += delta.get("partial_json", "")
+                    if is_trigger(self.pending_tool_name, self.accumulated_json, self.skill_name):
+                        return True
+            elif se_type in ("content_block_stop", "message_stop"):
+                if self.pending_tool_name:
+                    return is_trigger(
+                        self.pending_tool_name, self.accumulated_json, self.skill_name
+                    )
+                if se_type == "message_stop":
+                    return False
+        elif etype == "assistant":
+            message = event.get("message", {})
+            for content_item in message.get("content", []):
+                if content_item.get("type") != "tool_use":
+                    continue
+                tool_name = content_item.get("name", "")
+                tool_input = content_item.get("input", {})
+                field = (
+                    tool_input.get("skill", "")
+                    if tool_name == "Skill"
+                    else tool_input.get("file_path", "")
+                )
+                return is_trigger(tool_name, field, self.skill_name)
+        elif etype == "result":
+            # Terminal success event with no earlier tool choice: ran, didn't trigger.
+            return False
+        return None
+
+
 def run_single_query(
     query: str,
     skill_name: str,
@@ -150,13 +275,14 @@ def run_single_query(
     timeout: int,
     model: str | None = None,
     workspace_base: str | None = None,
-) -> bool:
-    """Run a single query and return whether the skill was triggered.
+) -> CallResult:
+    """Run a single query; return a :class:`CallResult` (triggered / failed).
 
     Creates an ISOLATED workspace (only this run's proxy is visible), runs
-    ``claude -p`` with the raw query in that workspace, and detects triggering
-    early from stream events (``content_block_start``) so we don't wait for the
-    full assistant message, which only arrives after tool execution.
+    ``claude -p`` with the raw query there, and detects triggering early from
+    stream events via :class:`_StreamDecider`. A run that ends with no decisive
+    event parsed (timeout / killed / errored ``claude -p``) is an INFRASTRUCTURE
+    failure (``failed=True``), distinct from a completed call that did not trigger.
     """
     base = Path(workspace_base) if workspace_base else None
     workdir, _proxy_path, _clean_name = make_isolated_workspace(
@@ -182,11 +308,9 @@ def run_single_query(
             env=claude_env(),
         )
 
-        triggered = False
+        decider = _StreamDecider(skill_name)
         start_time = time.time()
         buffer = ""
-        pending_tool_name = None
-        accumulated_json = ""
 
         try:
             while time.time() - start_time < timeout:
@@ -194,6 +318,9 @@ def run_single_query(
                     remaining = process.stdout.read()
                     if remaining:
                         buffer += remaining.decode("utf-8", errors="replace")
+                    decision, buffer = decider.feed(buffer)
+                    if decision is not None:
+                        return CallResult(triggered=decision, failed=False)
                     break
 
                 ready, _, _ = select.select([process.stdout], [], [], 1.0)
@@ -202,69 +329,23 @@ def run_single_query(
 
                 chunk = os.read(process.stdout.fileno(), 8192)
                 if not chunk:
+                    decision, buffer = decider.feed(buffer)
+                    if decision is not None:
+                        return CallResult(triggered=decision, failed=False)
                     break
                 buffer += chunk.decode("utf-8", errors="replace")
 
-                while "\n" in buffer:
-                    line, buffer = buffer.split("\n", 1)
-                    line = line.strip()
-                    if not line:
-                        continue
-
-                    try:
-                        event = json.loads(line)
-                    except json.JSONDecodeError:
-                        continue
-
-                    if event.get("type") == "stream_event":
-                        se = event.get("event", {})
-                        se_type = se.get("type", "")
-
-                        if se_type == "content_block_start":
-                            cb = se.get("content_block", {})
-                            if cb.get("type") == "tool_use":
-                                tool_name = cb.get("name", "")
-                                if tool_name in ("Skill", "Read"):
-                                    pending_tool_name = tool_name
-                                    accumulated_json = ""
-                                else:
-                                    return False
-
-                        elif se_type == "content_block_delta" and pending_tool_name:
-                            delta = se.get("delta", {})
-                            if delta.get("type") == "input_json_delta":
-                                accumulated_json += delta.get("partial_json", "")
-                                if is_trigger(pending_tool_name, accumulated_json, skill_name):
-                                    return True
-
-                        elif se_type in ("content_block_stop", "message_stop"):
-                            if pending_tool_name:
-                                return is_trigger(pending_tool_name, accumulated_json, skill_name)
-                            if se_type == "message_stop":
-                                return False
-
-                    elif event.get("type") == "assistant":
-                        message = event.get("message", {})
-                        for content_item in message.get("content", []):
-                            if content_item.get("type") != "tool_use":
-                                continue
-                            tool_name = content_item.get("name", "")
-                            tool_input = content_item.get("input", {})
-                            field = (
-                                tool_input.get("skill", "")
-                                if tool_name == "Skill"
-                                else tool_input.get("file_path", "")
-                            )
-                            return is_trigger(tool_name, field, skill_name)
-
-                    elif event.get("type") == "result":
-                        return triggered
+                decision, buffer = decider.feed(buffer)
+                if decision is not None:
+                    return CallResult(triggered=decision, failed=False)
         finally:
             if process.poll() is None:
                 process.kill()
                 process.wait()
 
-        return triggered
+        # No decisive event parsed -> the call was cut short (timeout / kill /
+        # error): an infrastructure FAILURE, not a clean miss.
+        return CallResult(triggered=False, failed=True)
     finally:
         shutil.rmtree(workdir, ignore_errors=True)
 
@@ -304,42 +385,76 @@ def run_eval(
     trigger_threshold: float = 0.5,
     model: str | None = None,
     workspace_base: str | None = None,
+    query_fn=None,
+    failure_threshold: float = CALL_FAILURE_ABORT_THRESHOLD,
 ) -> dict:
-    """Run the full eval set (parallel) and return per-query results + summary."""
-    results = []
+    """Run the full eval set and return per-query results + summary.
 
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        future_to_info = {}
-        for item in eval_set:
-            for run_idx in range(runs_per_query):
-                future = executor.submit(
-                    run_single_query,
-                    item["query"],
-                    skill_name,
-                    description,
-                    timeout,
-                    model,
-                    workspace_base,
-                )
-                future_to_info[future] = (item, run_idx)
+    Serial by default (``num_workers <= 1``): each call runs in-process, which is
+    reliable and the injectable seam for tests. ``num_workers > 1`` opts into the
+    ProcessPoolExecutor fan-out, faster but able to saturate the account's rate
+    limit when nested in a session. ``query_fn`` (default :func:`run_single_query`)
+    is resolved at call time so tests can monkeypatch it.
 
-        query_triggers: dict[str, list[bool]] = {}
-        query_items: dict[str, dict] = {}
-        for future in as_completed(future_to_info):
-            item, _ = future_to_info[future]
-            query = item["query"]
-            query_items[query] = item
-            if query not in query_triggers:
-                query_triggers[query] = []
+    Call FAILURES (429 / timeout / errored ``claude -p``) are tracked apart from
+    completed-but-no-trigger calls and excluded from the per-query denominators (a
+    failed call is not evidence the description failed to fire). If the call-failure
+    rate reaches ``failure_threshold`` the run is refused via
+    :func:`guard_call_failures` -- it raises and nothing downstream is written.
+    """
+    qf = query_fn or run_single_query
+    call_specs = [item for item in eval_set for _ in range(runs_per_query)]
+
+    query_outcomes: dict[str, list[CallResult]] = {}
+    query_items: dict[str, dict] = {}
+
+    def record(item: dict, outcome: CallResult) -> None:
+        query = item["query"]
+        query_items[query] = item
+        query_outcomes.setdefault(query, []).append(outcome)
+
+    if num_workers and num_workers > 1:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            future_to_item = {
+                executor.submit(
+                    qf, item["query"], skill_name, description,
+                    timeout, model, workspace_base,
+                ): item
+                for item in call_specs
+            }
+            for future in as_completed(future_to_item):
+                item = future_to_item[future]
+                try:
+                    outcome = future.result()
+                except Exception as e:  # noqa: BLE001
+                    print(f"Warning: query call failed: {e}", file=sys.stderr)
+                    outcome = CallResult(triggered=False, failed=True)
+                record(item, outcome)
+    else:
+        for item in call_specs:
             try:
-                query_triggers[query].append(future.result())
+                outcome = qf(
+                    item["query"], skill_name, description,
+                    timeout, model, workspace_base,
+                )
             except Exception as e:  # noqa: BLE001
-                print(f"Warning: query failed: {e}", file=sys.stderr)
-                query_triggers[query].append(False)
+                print(f"Warning: query call failed: {e}", file=sys.stderr)
+                outcome = CallResult(triggered=False, failed=True)
+            record(item, outcome)
 
-    for query, triggers in query_triggers.items():
+    calls_total = sum(len(outcomes) for outcomes in query_outcomes.values())
+    calls_failed = sum(
+        1 for outcomes in query_outcomes.values() for o in outcomes if o.failed
+    )
+    guard_call_failures(calls_total, calls_failed, failure_threshold, "trigger eval")
+
+    results = []
+    for query, outcomes in query_outcomes.items():
         item = query_items[query]
-        trigger_rate = sum(triggers) / len(triggers)
+        successful = [o for o in outcomes if not o.failed]
+        triggers = sum(1 for o in successful if o.triggered)
+        runs = len(successful)
+        trigger_rate = triggers / runs if runs else 0.0
         should_trigger = item["should_trigger"]
         if should_trigger:
             did_pass = trigger_rate >= trigger_threshold
@@ -349,8 +464,8 @@ def run_eval(
             "query": query,
             "should_trigger": should_trigger,
             "trigger_rate": trigger_rate,
-            "triggers": sum(triggers),
-            "runs": len(triggers),
+            "triggers": triggers,
+            "runs": runs,
             "pass": did_pass,
         })
 
@@ -366,6 +481,8 @@ def run_eval(
             "total": total,
             "passed": passed,
             "failed": total - passed,
+            "calls_total": calls_total,
+            "calls_failed": calls_failed,
             **metrics,
         },
     }

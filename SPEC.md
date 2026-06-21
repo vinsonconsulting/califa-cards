@@ -215,6 +215,18 @@ runs); the authored eval *set* (`triggering.jsonl`, `functional/tasks.json`,
 Real `claude` calls -> never part of `make check`; guarded behind an explicit
 token-spend ack (N > 1 multiplies the cost, so it stays behind the same ack).
 
+**Reliability (v0.6.2).** The harness keys on call FAILURES, not low scores: a
+rate-limited / timed-out / errored `claude -p` call is tracked apart from a call
+that completed without triggering, and excluded from the per-query denominators (a
+failed call is not evidence the description failed to fire). If the call-failure
+rate over a run reaches a conservative floor (0.2), the runner refuses the
+measurement -- it raises and writes no `evals/evals.json` -- rather than record the
+floor numbers a saturated run produces (recall ~0.14, etc.). The trigger eval is
+**serial by default** (`--workers 1`); parallelism is opt-in (`--workers N`, faster
+but able to saturate the account rate limit when nested in a session), which is the
+saturation source the guard backstops. Both `eval` and `optimize` share this; a
+low-but-honest score (calls succeed, grade low) still records normally.
+
 `skillcard optimize <skill_dir>` is the in-house description optimizer (the
 ported skill-creator `run_loop`). It measures the current description against the
 trigger eval set (`evals/triggering.jsonl`, or the inline `triggers:` block) on
@@ -441,3 +453,11 @@ Vectorize index. See [`worker/README.md`](worker/README.md).
   authoritative score by keeping the best of N generations per task; the sampling
   method is recorded in the `metrics.harness` string, never a new card field
   (`schema.py` is frozen).
+- v0.6.2 (2026-06-21): the metrics harness refuses to record a floor-collapsed
+  run. Call FAILURES (429 / timeout / errored `claude -p`) are tracked apart from
+  completed non-triggers and, when their rate over a run reaches 0.2, the runner
+  raises `EvalIntegrityError` and writes nothing -- a saturated run can no longer be
+  mistaken for a real measurement, while a low-but-honest score still records. The
+  trigger eval defaults to serial (`--workers 1`) with parallelism opt-in
+  (`--workers N`) on both `eval` and `optimize`. Harness + CLI behavior only;
+  `schema.py` stays frozen.
