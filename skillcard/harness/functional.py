@@ -35,10 +35,12 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import uuid
 from collections.abc import Callable
 from pathlib import Path
 
+from skillcard.harness.reliability import ReliabilityStats, TokenBucket, call_with_retry
 from skillcard.harness.trigger import (
     CALL_FAILURE_ABORT_THRESHOLD,
     EVAL_WORKSPACE_ROOT,
@@ -185,6 +187,12 @@ def run_functional(
     generate: Callable[[dict], str] | None = None,
     best_of: int = 1,
     failure_threshold: float = CALL_FAILURE_ABORT_THRESHOLD,
+    max_retries: int = 0,
+    backoff_base: float = 2.0,
+    backoff_cap: float = 60.0,
+    task_timeout: float | None = None,
+    rate_limit: float = 0,
+    sleep: Callable[[float], None] = time.sleep,
 ) -> dict | None:
     """Run the functional set; return the aggregate, or None if the skill has none.
 
@@ -197,7 +205,19 @@ def run_functional(
     single-shot lower bound. Best = max ``pass_rate``; since ``total`` is fixed per
     task that also maximises completion (``passed == total``). Opt-in: N>1 costs N
     times the tokens, so the CLI guards it behind the token-spend ack.
+
+    Each generation runs through :func:`call_with_retry` with a :class:`TokenBucket`
+    pacer, so a throttled-but-recovered generation is a success: only a TERMINAL
+    failure (``max_retries`` spent, or the per-task ``task_timeout`` wall-clock
+    exhausted) counts toward ``calls_failed`` and the collapse guard. ``timeout`` is
+    the per-call bound (one ``claude -p`` attempt); ``task_timeout`` bounds all the
+    retries of one task. The new knobs default to a no-op (``max_retries=0``,
+    ``rate_limit=0``), so an un-opted call behaves exactly as before plus a
+    ``reliability`` provenance block. The float fields make timing offline-testable
+    via the injectable ``sleep``.
     """
+    stats = ReliabilityStats()
+    pacer = TokenBucket(rate_limit, stats=stats, sleep=sleep)
     skill_dir = Path(skill_dir)
     tasks_path = skill_dir / "evals" / "functional" / "tasks.json"
     if not tasks_path.exists():
@@ -220,10 +240,16 @@ def run_functional(
         for _ in range(samples):
             calls_total += 1
             try:
-                artifact = generate(task)
+                artifact = call_with_retry(
+                    lambda t=task: generate(t),
+                    max_retries=max_retries, backoff_base=backoff_base,
+                    backoff_cap=backoff_cap, task_timeout=task_timeout,
+                    pacer=pacer, stats=stats, sleep=sleep,
+                )
             except (EvalCallError, subprocess.TimeoutExpired, OSError) as exc:
-                # A FAILED generation (timeout / 429 / spawn), not a low score:
-                # count it and skip grading this sample.
+                # A TERMINALLY FAILED generation (retries / per-task budget spent),
+                # not a low score: count it and skip grading this sample. A
+                # transient failure the retry layer recovered from never lands here.
                 calls_failed += 1
                 print(f"Warning: functional generation failed: {exc}", file=sys.stderr)
                 continue
@@ -253,4 +279,5 @@ def run_functional(
         "per_task": per_task,
         "calls_total": calls_total,
         "calls_failed": calls_failed,
+        "reliability": stats.as_dict(),
     }

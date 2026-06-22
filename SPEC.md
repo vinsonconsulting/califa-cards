@@ -227,6 +227,26 @@ but able to saturate the account rate limit when nested in a session), which is 
 saturation source the guard backstops. Both `eval` and `optimize` share this; a
 low-but-honest score (calls succeed, grade low) still records normally.
 
+**Rate-limit resilience (v0.7.0).** The harness drives the model by spawning the
+`claude` CLI, so there is no in-process SDK whose retry/backoff we can configure --
+the only seam is the subprocess boundary. Two layers live there. A client-side
+token-bucket **pacer** (`--rate-limit`, requests/min, on at 40 by default; `0` opts
+out) spaces call submission to stay under the account window -- the primary defense,
+preventing the bursts rather than recovering from them. A **retry** wrapper
+(`--max-retries`, default 4) retries a transient failure with exponential backoff and
+jitter (`--backoff-base`/`--backoff-cap`), honoring a `retry-after` hint best-effort
+when the CLI surfaces one; jitter shapes only the sleep, never the eval sampling. The
+per-call timeout (`--timeout`) is decoupled from a new per-task wall-clock budget
+(`--task-timeout`, default 900s) that bounds all of one call's retries. The v0.6.2
+collapse guard is preserved but now keys on TERMINAL failures only: a call that
+recovers on retry is a success and never trips the 0.2 abort, while a genuinely
+saturated window (terminal failures climbing) still refuses. Each run records a
+`reliability` provenance block (total retries, cumulative wait, max backoff, pacer
+waits, terminal failures) in `evals/evals.json` and prints it, so a
+throttled-but-recovered run is visible rather than silent. Harness + CLI behavior
+only; `schema.py` stays frozen and `evals/evals.json` is still excluded from
+`content_hash`, so the provenance never moves the code identity.
+
 `skillcard optimize <skill_dir>` is the in-house description optimizer (the
 ported skill-creator `run_loop`). It measures the current description against the
 trigger eval set (`evals/triggering.jsonl`, or the inline `triggers:` block) on
@@ -461,3 +481,17 @@ Vectorize index. See [`worker/README.md`](worker/README.md).
   trigger eval defaults to serial (`--workers 1`) with parallelism opt-in
   (`--workers N`) on both `eval` and `optimize`. Harness + CLI behavior only;
   `schema.py` stays frozen.
+- v0.7.0 (2026-06-22): eval rate-limit resilience at the `claude` subprocess
+  boundary (there is no in-process SDK to configure). A client-side token-bucket
+  pacer (`--rate-limit` rpm, on at 40 by default; `0` disables) spaces call
+  submission as the primary defense against sustained throttling; a retry wrapper
+  (`--max-retries`, default 4) backs off exponentially with jitter
+  (`--backoff-base`/`--backoff-cap`) and honors `retry-after` best-effort. The
+  per-call `--timeout` is decoupled from a per-task wall-clock `--task-timeout`
+  (default 900s) bounding all of one call's retries. The v0.6.2 collapse guard now
+  keys on TERMINAL failures only -- a call recovered on retry counts as a success and
+  does not trip the 0.2 abort, while a genuinely saturated window still refuses. Runs
+  record a `reliability` provenance block (retries, cumulative wait, max backoff,
+  pacer waits, terminal failures) in `evals/evals.json` (still excluded from
+  `content_hash`). New module `skillcard/harness/reliability.py`; `eval` + `optimize`
+  share the knobs. Harness + CLI behavior only; `schema.py` stays frozen.

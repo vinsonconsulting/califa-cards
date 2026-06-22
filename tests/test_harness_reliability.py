@@ -342,3 +342,115 @@ def test_optimize_command_clean_fail_on_saturation(tmp_path, monkeypatch):
         workspace_base=None,
     )
     assert optimize.run_optimize_command(args) == 1
+
+
+# --- v0.7.0 functional retry: a recovered generation is a success, not a failure ---
+
+
+def test_functional_retry_recovers_without_tripping_guard(tmp_path):
+    # Each task's generation fails once then succeeds. With retries the run records
+    # cleanly and the collapse guard does NOT trip -- the failures were transient and
+    # the retry layer handled them, so they must not count toward the 0.2 abort.
+    skill = _make_multitask_skill(tmp_path, 4)
+    attempts: dict[str, int] = {}
+
+    def generate(task):
+        n = attempts.get(task["id"], 0) + 1
+        attempts[task["id"]] = n
+        if n == 1:
+            raise EvalCallError("transient 429")
+        return "hello"
+
+    out = run_functional(skill, generate=generate, max_retries=3, sleep=lambda s: None)
+    assert out["calls_failed"] == 0                 # recovered -> no terminal failures
+    assert out["calls_total"] == 4
+    assert out["task_completion_rate"] == 1.0
+    assert out["reliability"]["total_retries"] == 4  # exactly one retry per task
+    assert out["reliability"]["terminal_failures"] == 0
+
+
+def test_functional_terminal_failures_still_trip_guard(tmp_path):
+    # Generations never recover: even with retries every task fails terminally, so the
+    # saturated run is still refused (terminal failures DO count toward the guard).
+    skill = _make_multitask_skill(tmp_path, 4)
+
+    def generate(task):
+        raise EvalCallError("hard saturation")
+
+    with pytest.raises(EvalIntegrityError):
+        run_functional(skill, generate=generate, max_retries=2, sleep=lambda s: None)
+
+
+def test_functional_reliability_block_present_by_default(tmp_path):
+    skill = _make_multitask_skill(tmp_path, 2)
+    out = run_functional(skill, generate=lambda t: "hello")
+    assert set(out["reliability"]) >= {
+        "total_retries", "terminal_failures", "pacer_wait_count", "max_backoff_s",
+    }
+    assert out["reliability"]["terminal_failures"] == 0
+
+
+# --- v0.7.0 trigger retry: a recovered call is a success, not a guard failure ---
+
+
+def test_run_eval_retry_recovers_call_without_counting_failure():
+    # p1's first run fails (429-style) then succeeds: with retries it records as a
+    # clean trigger and contributes nothing to the call-failure guard.
+    seen: dict[str, int] = {}
+
+    def qf(query, *a):
+        n = seen.get(query, 0) + 1
+        seen[query] = n
+        if n == 1:
+            return CallResult(triggered=False, failed=True)   # transient
+        return CallResult(triggered=True, failed=False)       # recovers on retry
+
+    out = run_eval([_pos("p1")], "demo", "d", num_workers=1, timeout=5,
+                   runs_per_query=1, query_fn=qf, max_retries=3, sleep=lambda s: None)
+    s = out["summary"]
+    assert s["calls_failed"] == 0
+    assert s["calls_total"] == 1
+    assert s["recall"] == 1.0
+    assert s["reliability"]["total_retries"] == 1
+    assert s["reliability"]["terminal_failures"] == 0
+
+
+def test_run_eval_terminal_failures_still_refuse():
+    # Every call fails terminally even after retries -> saturated -> raise.
+    qf = lambda *a: CallResult(triggered=False, failed=True)  # noqa: E731
+    with pytest.raises(EvalIntegrityError):
+        run_eval([_pos("p1"), _pos("p2")], "demo", "d", num_workers=1, timeout=5,
+                 runs_per_query=3, query_fn=qf, max_retries=2, sleep=lambda s: None)
+
+
+def test_run_eval_reliability_in_summary_by_default():
+    qf = lambda *a: CallResult(triggered=True, failed=False)  # noqa: E731
+    out = run_eval([_pos("p1")], "demo", "d", num_workers=1, timeout=5,
+                   runs_per_query=1, query_fn=qf)
+    assert out["summary"]["reliability"]["terminal_failures"] == 0
+    assert out["summary"]["reliability"]["total_retries"] == 0
+
+
+def test_eval_command_writes_merged_reliability_block(tmp_path, monkeypatch):
+    # The command surfaces the run's resilience stats in evals.json: trigger +
+    # functional reliability merged into results.reliability.
+    skill = _skill_with_triggering(tmp_path)
+
+    import skillcard.harness.command as command
+    import skillcard.harness.trigger as trigger
+    monkeypatch.setattr(command.shutil, "which", lambda _x: "/usr/bin/claude")
+    monkeypatch.setattr(trigger, "run_single_query",
+                        lambda *a: CallResult(triggered=True, failed=False))
+    monkeypatch.setattr(command, "run_functional", lambda *a, **k: {
+        "eval_pass_rate": 1.0, "task_completion_rate": 1.0, "tasks_passed": "1/1",
+        "per_task": [], "calls_total": 1, "calls_failed": 0,
+        "reliability": {"total_retries": 2, "cumulative_wait_s": 1.0,
+                        "max_backoff_s": 1.0, "pacer_wait_count": 0,
+                        "pacer_wait_s": 0.0, "terminal_failures": 0},
+    })
+
+    assert run_eval_command(_eval_args(skill)) == 0
+    written = json.loads((skill / "evals" / "evals.json").read_text())
+    rel = written["results"]["reliability"]
+    assert rel["total_retries"] == 2          # trigger 0 + functional 2
+    assert rel["terminal_failures"] == 0

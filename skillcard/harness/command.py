@@ -30,6 +30,22 @@ def _skill_md_is_dirty(skill_dir: Path) -> bool:
         return False
 
 
+def _merge_reliability(*blocks: dict | None) -> dict:
+    """Combine per-phase reliability stat dicts: counts/waits sum, backoff is maxed."""
+    out = {"total_retries": 0, "cumulative_wait_s": 0.0, "max_backoff_s": 0.0,
+           "pacer_wait_count": 0, "pacer_wait_s": 0.0, "terminal_failures": 0}
+    for block in blocks:
+        if not block:
+            continue
+        out["total_retries"] += block.get("total_retries", 0)
+        out["cumulative_wait_s"] += block.get("cumulative_wait_s", 0.0)
+        out["pacer_wait_count"] += block.get("pacer_wait_count", 0)
+        out["pacer_wait_s"] += block.get("pacer_wait_s", 0.0)
+        out["terminal_failures"] += block.get("terminal_failures", 0)
+        out["max_backoff_s"] = max(out["max_backoff_s"], block.get("max_backoff_s", 0.0))
+    return out
+
+
 def run_eval_command(args) -> int:
     """Run the metrics harness (live ``claude -p``) and write evals/evals.json.
 
@@ -62,12 +78,21 @@ def run_eval_command(args) -> int:
               "description, not a committed one.")
 
     name, description, _ = parse_skill_md(skill_dir)
+    # Rate-limit resilience knobs; getattr keeps older arg Namespaces (and tests)
+    # working with the no-op defaults while the CLI supplies the real ones.
+    max_retries = getattr(args, "max_retries", 0)
+    task_timeout = getattr(args, "task_timeout", None)
+    rate_limit = getattr(args, "rate_limit", 0)
+    backoff_base = getattr(args, "backoff_base", 2.0)
+    backoff_cap = getattr(args, "backoff_cap", 60.0)
     print(f"eval: {name} -- triggering ({args.workers}w x {args.runs_per_query} runs)...")
     trig_out = run_eval(
         load_eval_set(trig_path), name, description,
         num_workers=args.workers, timeout=args.timeout,
         runs_per_query=args.runs_per_query, model=args.model,
         workspace_base=args.workspace_base,
+        max_retries=max_retries, backoff_base=backoff_base, backoff_cap=backoff_cap,
+        task_timeout=task_timeout, rate_limit=rate_limit,
     )
     s = trig_out["summary"]
     print(f"  precision={s['precision']:.3f} recall={s['recall']} near_miss={s['specificity']}")
@@ -77,7 +102,9 @@ def run_eval_command(args) -> int:
         sampling = f" best-of-{best_of}" if best_of > 1 else ""
         print(f"eval: functional (full workflow + grade per task){sampling}...")
         func_out = run_functional(
-            skill_dir, model=args.model, timeout=max(args.timeout, 300), best_of=best_of
+            skill_dir, model=args.model, timeout=max(args.timeout, 300), best_of=best_of,
+            max_retries=max_retries, backoff_base=backoff_base, backoff_cap=backoff_cap,
+            task_timeout=task_timeout, rate_limit=rate_limit,
         )
         if func_out:
             print(f"  eval_pass_rate={func_out['eval_pass_rate']:.3f} "
@@ -87,10 +114,23 @@ def run_eval_command(args) -> int:
                 print(f"    [{mark}] {t['id']}: {t['passed']}/{t['total']} "
                       f"(pass_rate={t['pass_rate']:.3f})")
 
+    reliability = _merge_reliability(
+        trig_out["summary"].get("reliability"),
+        func_out.get("reliability") if func_out else None,
+    )
+    print(
+        f"  reliability: retries={reliability['total_retries']} "
+        f"wait={reliability['cumulative_wait_s']:.1f}s "
+        f"max_backoff={reliability['max_backoff_s']:.1f}s "
+        f"pacer_waits={reliability['pacer_wait_count']} "
+        f"terminal_failures={reliability['terminal_failures']}"
+    )
+
     out_dir = Path(args.out) if args.out else skill_dir / "evals"
     today = datetime.date.today().isoformat()
     path = assemble.write_evals_json(
-        skill_dir, out_dir, name, trig_out, func_out, args.model, today, best_of=best_of
+        skill_dir, out_dir, name, trig_out, func_out, args.model, today,
+        best_of=best_of, reliability=reliability,
     )
     tail = "results block populated" if func_out else "no results block: functional skipped -> beta"
     print(f"OK: wrote {path} ({tail})")

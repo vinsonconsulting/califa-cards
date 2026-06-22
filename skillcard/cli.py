@@ -214,6 +214,32 @@ def main(argv: list[str] | None = None) -> int:
     )
     r.add_argument("skill_dir")
 
+    def _add_resilience_flags(p):
+        # v0.7.0 rate-limit resilience knobs, shared by eval + optimize. All default
+        # to working values; --rate-limit 0 / --max-retries 0 opt back out.
+        p.add_argument(
+            "--max-retries", type=int, default=4,
+            help="retries after a transient call failure (429 / timeout); 0 disables",
+        )
+        p.add_argument(
+            "--task-timeout", type=int, default=900,
+            help="per-task wall-clock budget (seconds) across all retries; decoupled "
+            "from --timeout, which bounds a single call",
+        )
+        p.add_argument(
+            "--rate-limit", type=float, default=40,
+            help="pacer rate in requests/min that spaces call submission; "
+            "0 turns pacing off (default 40)",
+        )
+        p.add_argument(
+            "--backoff-base", type=float, default=2.0,
+            help="exponential backoff base seconds (default 2.0)",
+        )
+        p.add_argument(
+            "--backoff-cap", type=float, default=60.0,
+            help="ceiling for a single backoff wait in seconds (default 60)",
+        )
+
     e = sub.add_parser(
         "eval", help="run the triggering + functional metrics harness; write evals/evals.json"
     )
@@ -245,6 +271,7 @@ def main(argv: list[str] | None = None) -> int:
         help="required: confirms a live claude run (this command spends tokens)",
     )
     e.add_argument("--workspace-base", default=None, help=argparse.SUPPRESS)
+    _add_resilience_flags(e)
 
     o = sub.add_parser(
         "optimize",
@@ -276,6 +303,7 @@ def main(argv: list[str] | None = None) -> int:
         help="required: confirms a live claude run (this command spends tokens)",
     )
     o.add_argument("--workspace-base", default=None, help=argparse.SUPPRESS)
+    _add_resilience_flags(o)
 
     sub.add_parser("badges", help="(v2) emit shields.io endpoint JSON from a card")
 

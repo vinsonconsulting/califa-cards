@@ -212,3 +212,22 @@ def test_command_accept_writes_description(tmp_path, monkeypatch):
     assert parse_frontmatter((skill / "SKILL.md").read_text())["description"].strip() == (
         "NEW DESCRIPTION."
     )
+
+
+# --- v0.7.0: optimize's measurement inherits the rate-limit resilience knobs ---
+
+def test_run_optimize_threads_resilience_into_run_eval(tmp_path, monkeypatch):
+    skill = _make_skill(tmp_path)
+    captured: dict = {}
+
+    import skillcard.harness.optimize as opt
+
+    def fake_run_eval(eval_set, name, desc, **kw):
+        captured.update(kw)
+        return {"results": [], "summary": {"passed": 1, "total": 1, "failed": 0,
+                                           "fp": 0, "precision": 1.0, "recall": 1.0}}
+
+    monkeypatch.setattr(opt, "run_eval", fake_run_eval)
+    opt.run_optimize(skill, "m", max_retries=4, rate_limit=40, max_iterations=1)
+    assert captured["max_retries"] == 4
+    assert captured["rate_limit"] == 40

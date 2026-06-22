@@ -26,10 +26,12 @@ import re
 import shutil
 import subprocess
 import textwrap
+import time
 from collections.abc import Callable
 from pathlib import Path
 
 from skillcard.harness.provenance import harness_provenance
+from skillcard.harness.reliability import call_with_retry, parse_retry_after
 from skillcard.harness.trigger import (
     EvalIntegrityError,
     claude_env,
@@ -41,22 +43,39 @@ from skillcard.harness.trigger import (
 _DESC_RE = re.compile(r"<new_description>(.*?)</new_description>", re.DOTALL)
 
 
-def _call_claude(prompt: str, model: str | None, timeout: int = 300) -> str:
+def _call_claude(
+    prompt: str, model: str | None, timeout: int = 300, resilience: dict | None = None
+) -> str:
     """Run ``claude -p`` with the prompt on stdin; return the text response.
 
     The prompt goes over stdin (not argv) because it embeds the full SKILL.md body.
-    Mirrors the trigger runner's auth/env handling via :func:`claude_env`.
+    Mirrors the trigger runner's auth/env handling via :func:`claude_env`. ``resilience``
+    (the eval retry knobs) wraps the call in :func:`call_with_retry` so a throttled
+    proposal backs off and retries instead of failing the loop; omitted -> one attempt.
     """
+    res = resilience or {}
     cmd = ["claude", "-p", "--output-format", "text"]
     if model:
         cmd += ["--model", model]
-    proc = subprocess.run(
-        cmd, input=prompt, capture_output=True, text=True,
-        env=claude_env(), timeout=timeout,
+
+    def _attempt() -> str:
+        proc = subprocess.run(
+            cmd, input=prompt, capture_output=True, text=True,
+            env=claude_env(), timeout=timeout,
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"claude -p exited {proc.returncode}\nstderr: {proc.stderr}")
+        return proc.stdout
+
+    return call_with_retry(
+        _attempt,
+        max_retries=res.get("max_retries", 0),
+        backoff_base=res.get("backoff_base", 2.0),
+        backoff_cap=res.get("backoff_cap", 60.0),
+        task_timeout=res.get("task_timeout"),
+        sleep=res.get("sleep", time.sleep),
+        retry_after_of=lambda exc: parse_retry_after(str(exc)),
     )
-    if proc.returncode != 0:
-        raise RuntimeError(f"claude -p exited {proc.returncode}\nstderr: {proc.stderr}")
-    return proc.stdout
 
 
 def _eval_set_from_skill(skill_dir: Path) -> list[dict]:
@@ -89,6 +108,7 @@ def _propose_description(
     eval_results: dict,
     history: list[dict],
     model: str | None,
+    resilience: dict | None = None,
 ) -> str:
     """Ask ``claude -p`` for an improved description from the trigger failures.
 
@@ -141,7 +161,7 @@ def _propose_description(
         "description in <new_description> tags."
     )
 
-    text = _call_claude(prompt, model)
+    text = _call_claude(prompt, model, resilience=resilience)
     m = _DESC_RE.search(text)
     desc = (m.group(1) if m else text).strip().strip('"')
     if len(desc) > 1024:
@@ -152,7 +172,7 @@ def _propose_description(
             f"trigger words and intent coverage. Respond with ONLY the new description "
             f"in <new_description> tags."
         )
-        text = _call_claude(shorten, model)
+        text = _call_claude(shorten, model, resilience=resilience)
         m = _DESC_RE.search(text)
         desc = (m.group(1) if m else text).strip().strip('"')
     return " ".join(desc.split())
@@ -202,6 +222,12 @@ def run_optimize(
     runs_per_query: int = 3,
     max_iterations: int = 3,
     workspace_base: str | None = None,
+    max_retries: int = 0,
+    backoff_base: float = 2.0,
+    backoff_cap: float = 60.0,
+    task_timeout: float | None = None,
+    rate_limit: float = 0,
+    sleep: Callable[[float], None] = time.sleep,
     measure: Callable[[str], dict] | None = None,
     propose: Callable[[str, dict, list], str] | None = None,
 ) -> dict:
@@ -220,15 +246,24 @@ def run_optimize(
             f"or a triggers: block to SKILL.md)"
         )
 
+    resilience = {
+        "max_retries": max_retries, "backoff_base": backoff_base,
+        "backoff_cap": backoff_cap, "task_timeout": task_timeout, "sleep": sleep,
+    }
     if measure is None:
         def measure(desc: str) -> dict:
             return run_eval(
                 eval_set, name, desc, num_workers=workers, timeout=timeout,
                 runs_per_query=runs_per_query, model=model, workspace_base=workspace_base,
+                max_retries=max_retries, backoff_base=backoff_base,
+                backoff_cap=backoff_cap, task_timeout=task_timeout,
+                rate_limit=rate_limit, sleep=sleep,
             )
     if propose is None:
         def propose(desc: str, ev: dict, hist: list) -> str:
-            return _propose_description(name, content, desc, ev, hist, model)
+            return _propose_description(
+                name, content, desc, ev, hist, model, resilience=resilience
+            )
 
     history: list[dict] = []
     candidates: list[tuple[str, dict]] = []
@@ -307,6 +342,11 @@ def run_optimize_command(args) -> int:
             skill_dir, args.model, workers=args.workers, timeout=args.timeout,
             runs_per_query=args.runs_per_query, max_iterations=args.max_iterations,
             workspace_base=args.workspace_base,
+            max_retries=getattr(args, "max_retries", 0),
+            backoff_base=getattr(args, "backoff_base", 2.0),
+            backoff_cap=getattr(args, "backoff_cap", 60.0),
+            task_timeout=getattr(args, "task_timeout", None),
+            rate_limit=getattr(args, "rate_limit", 0),
         )
     except (ValueError, EvalIntegrityError) as exc:
         # EvalIntegrityError: a saturated measurement -- report cleanly and stop
