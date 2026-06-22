@@ -39,6 +39,8 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import NamedTuple
 
+from skillcard.harness.reliability import ReliabilityStats, TokenBucket, call_with_retry
+
 # Short SHA of the cabinet fork commit this runner was ported from (provenance).
 FORK_SHA = "ef6f952"
 
@@ -387,6 +389,12 @@ def run_eval(
     workspace_base: str | None = None,
     query_fn=None,
     failure_threshold: float = CALL_FAILURE_ABORT_THRESHOLD,
+    max_retries: int = 0,
+    backoff_base: float = 2.0,
+    backoff_cap: float = 60.0,
+    task_timeout: float | None = None,
+    rate_limit: float = 0,
+    sleep=time.sleep,
 ) -> dict:
     """Run the full eval set and return per-query results + summary.
 
@@ -398,11 +406,20 @@ def run_eval(
 
     Call FAILURES (429 / timeout / errored ``claude -p``) are tracked apart from
     completed-but-no-trigger calls and excluded from the per-query denominators (a
-    failed call is not evidence the description failed to fire). If the call-failure
-    rate reaches ``failure_threshold`` the run is refused via
-    :func:`guard_call_failures` -- it raises and nothing downstream is written.
+    failed call is not evidence the description failed to fire). A failure is only
+    counted once its retries are spent: on the SERIAL path each call goes through
+    :func:`call_with_retry` with a :class:`TokenBucket` pacer, so a throttled call
+    that recovers on retry records as a success and a TERMINAL failure is what feeds
+    the guard. ``timeout`` bounds one attempt; ``task_timeout`` bounds all retries of
+    one call. The retry/pace knobs default to a no-op (``max_retries=0``,
+    ``rate_limit=0``); the parallel branch stays single-attempt. If the terminal
+    call-failure rate reaches ``failure_threshold`` the run is refused via
+    :func:`guard_call_failures` -- it raises and nothing downstream is written. The
+    accumulated :class:`ReliabilityStats` is surfaced under ``summary.reliability``.
     """
     qf = query_fn or run_single_query
+    stats = ReliabilityStats()
+    pacer = TokenBucket(rate_limit, stats=stats, sleep=sleep)
     call_specs = [item for item in eval_set for _ in range(runs_per_query)]
 
     query_outcomes: dict[str, list[CallResult]] = {}
@@ -433,11 +450,19 @@ def run_eval(
     else:
         for item in call_specs:
             try:
-                outcome = qf(
-                    item["query"], skill_name, description,
-                    timeout, model, workspace_base,
+                outcome = call_with_retry(
+                    lambda it=item: qf(
+                        it["query"], skill_name, description,
+                        timeout, model, workspace_base,
+                    ),
+                    max_retries=max_retries, backoff_base=backoff_base,
+                    backoff_cap=backoff_cap, task_timeout=task_timeout,
+                    pacer=pacer, stats=stats,
+                    is_failure=lambda r: r.failed, sleep=sleep,
                 )
             except Exception as e:  # noqa: BLE001
+                # Every retry raised: a terminal infrastructure failure (already
+                # counted in ``stats`` by call_with_retry).
                 print(f"Warning: query call failed: {e}", file=sys.stderr)
                 outcome = CallResult(triggered=False, failed=True)
             record(item, outcome)
@@ -483,6 +508,7 @@ def run_eval(
             "failed": total - passed,
             "calls_total": calls_total,
             "calls_failed": calls_failed,
+            "reliability": stats.as_dict(),
             **metrics,
         },
     }

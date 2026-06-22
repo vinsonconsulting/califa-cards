@@ -97,6 +97,29 @@ def test_no_results_block_is_discover_beta_none(tmp_path):
     assert _metrics(tmp_path, {}) is None  # beta path, never a half-populated dict
 
 
+def test_reliability_block_written_when_provided():
+    rel = {"total_retries": 3, "cumulative_wait_s": 6.0, "max_backoff_s": 4.0,
+           "pacer_wait_count": 2, "pacer_wait_s": 1.0, "terminal_failures": 0}
+    block = build_results_block(_trig(), _FUNC, "m", "d", reliability=rel)
+    assert block["reliability"] == rel
+
+
+def test_reliability_absent_when_not_provided():
+    # Back-compat: a call without reliability emits the v0.6.x block unchanged.
+    block = build_results_block(_trig(), _FUNC, "m", "d")
+    assert "reliability" not in block
+
+
+def test_write_evals_json_includes_reliability(tmp_path):
+    evals = tmp_path / "evals"
+    evals.mkdir()
+    rel = {"total_retries": 1, "terminal_failures": 0}
+    write_evals_json(tmp_path, evals, "demo", _trig(), _FUNC, "m", "2026-06-20",
+                     reliability=rel)
+    data = json.loads((evals / "evals.json").read_text(encoding="utf-8"))
+    assert data["results"]["reliability"] == rel
+
+
 def test_textual_offline_parity_with_committed_results():
     # The textual offline demonstration (no live claude): the wrapper, fed the
     # textual scorecard numbers, reproduces the committed results sub-blocks

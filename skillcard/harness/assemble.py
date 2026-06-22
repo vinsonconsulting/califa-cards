@@ -28,13 +28,22 @@ def _round(value: Any, ndigits: int = 4) -> Any:
 
 
 def build_results_block(
-    trig_out: dict, func_out: dict | None, model: str, date: str, best_of: int = 1
+    trig_out: dict,
+    func_out: dict | None,
+    model: str,
+    date: str,
+    best_of: int = 1,
+    reliability: dict | None = None,
 ) -> dict | None:
     """Map a harness run (+ functional aggregate) to a ``results`` block, or None.
 
     ``best_of`` (default 1, single-shot) is recorded in the ``harness`` provenance
     string when > 1 (e.g. ``... / best_of_3``), so a populated cert states how the
-    functional number was obtained.
+    functional number was obtained. ``reliability`` (the merged rate-limit-resilience
+    stats for the run) is recorded under ``reliability`` when given, so a
+    throttled-but-recovered run is visible; omitted -> the v0.6.x block is unchanged.
+    ``evals.json`` is excluded from ``content_hash``, so this provenance never moves
+    the code identity.
     """
     s = trig_out["summary"]
     triggering = {
@@ -51,12 +60,15 @@ def build_results_block(
         "task_completion_rate": _round(func_out["task_completion_rate"]),
     }
     sampling = f"best_of_{best_of}" if best_of and best_of > 1 else None
-    return {
+    block = {
         "triggering": triggering,
         "functional": functional,
         "harness": harness_provenance(model, date, sampling=sampling),
         "date": date,
     }
+    if reliability is not None:
+        block["reliability"] = reliability
+    return block
 
 
 def write_evals_json(
@@ -68,6 +80,7 @@ def write_evals_json(
     model: str,
     date: str,
     best_of: int = 1,
+    reliability: dict | None = None,
 ) -> Path:
     """Write ``<out_dir>/evals.json``: preserve existing ``evals[]``, recompute results.
 
@@ -87,7 +100,9 @@ def write_evals_json(
         if prior.get("evals") is not None:
             payload["evals"] = prior["evals"]
 
-    block = build_results_block(trig_out, func_out, model, date, best_of=best_of)
+    block = build_results_block(
+        trig_out, func_out, model, date, best_of=best_of, reliability=reliability
+    )
     if block is not None:
         payload["results"] = block
 
