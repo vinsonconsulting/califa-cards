@@ -139,3 +139,50 @@ def test_extract_artifact_falls_back_to_raw_stdout(tmp_path):
 def test_extract_artifact_ignores_empty_file(tmp_path):
     (tmp_path / "README.md").write_text("   \n")
     assert _extract_artifact(tmp_path, "fallback prose", "README.md") == "fallback prose"
+
+
+# --- skill install: the model must get SKILL.md AND the reference docs ---
+
+def _skill_with_refs(tmp_path, ref_name):
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nname: demo\n---\n# demo\n")
+    refs = skill / ref_name
+    refs.mkdir()
+    (refs / "layout.md").write_text("layout docs")
+    return skill
+
+
+def test_install_skill_copies_references_plural(tmp_path):
+    # Skills use the plural `references/` (Anthropic convention); the eval
+    # workspace must carry them so the model can open them on demand.
+    from skillcard.harness.functional import _install_skill
+
+    skill = _skill_with_refs(tmp_path, "references")
+    dest = tmp_path / "install" / "demo"
+    _install_skill(skill, dest)
+    assert (dest / "SKILL.md").is_file()
+    assert (dest / "references" / "layout.md").read_text() == "layout docs"
+
+
+def test_install_skill_copies_reference_singular(tmp_path):
+    # The singular `reference/` (e.g. github-readme) is still honored.
+    from skillcard.harness.functional import _install_skill
+
+    skill = _skill_with_refs(tmp_path, "reference")
+    dest = tmp_path / "install" / "demo"
+    _install_skill(skill, dest)
+    assert (dest / "reference" / "layout.md").read_text() == "layout docs"
+
+
+def test_install_skill_without_refs_copies_only_skill_md(tmp_path):
+    from skillcard.harness.functional import _install_skill
+
+    skill = tmp_path / "demo"
+    skill.mkdir()
+    (skill / "SKILL.md").write_text("---\nname: demo\n---\n# demo\n")
+    dest = tmp_path / "install" / "demo"
+    _install_skill(skill, dest)
+    assert (dest / "SKILL.md").is_file()
+    assert not (dest / "reference").exists()
+    assert not (dest / "references").exists()
