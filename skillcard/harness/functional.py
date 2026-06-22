@@ -82,6 +82,22 @@ def _extract_artifact(workdir: Path, stdout: str, artifact_name: str) -> str:
     return stdout
 
 
+def _install_skill(skill_dir: Path, skill_install: Path) -> None:
+    """Copy the real skill into the eval workspace's skill-install dir.
+
+    SKILL.md plus its reference docs, so the model uses the skill's actual
+    guidance (unlike the trigger runner's description-only proxy). Skills name the
+    docs dir either ``reference/`` or the (more common) plural ``references/``;
+    copy whichever exist, under the same name so the SKILL.md's own links resolve.
+    """
+    skill_install.mkdir(parents=True, exist_ok=True)
+    shutil.copy(skill_dir / "SKILL.md", skill_install / "SKILL.md")
+    for ref_name in ("reference", "references"):
+        ref = skill_dir / ref_name
+        if ref.is_dir():
+            shutil.copytree(ref, skill_install / ref_name)
+
+
 def _generate_readme_live(
     task: dict, skill_dir: Path, skill_name: str, model: str | None, timeout: int,
 ) -> str:
@@ -98,12 +114,8 @@ def _generate_readme_live(
     artifact_name = task.get("artifact", "README.md")
     workdir = EVAL_WORKSPACE_ROOT / f"func-{uuid.uuid4().hex[:8]}"
     skill_install = workdir / ".claude" / "skills" / skill_name
-    skill_install.mkdir(parents=True, exist_ok=True)
     try:
-        shutil.copy(skill_dir / "SKILL.md", skill_install / "SKILL.md")
-        ref = skill_dir / "reference"
-        if ref.is_dir():
-            shutil.copytree(ref, skill_install / "reference")
+        _install_skill(skill_dir, skill_install)
         func_dir = skill_dir / "evals" / "functional"
         for rel in task.get("fixtures", []):
             src = func_dir / rel
