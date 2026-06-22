@@ -47,9 +47,11 @@ The `content_hash` is computed by `skillcard hash <skill-dir>` and re-verified b
 `skillcard validate <skill-dir>`. Algorithm (normative):
 
 1. Walk the skill directory recursively for regular files, **excluding** the
-   generated artifacts `skill-card.md`, `card.json`, `card-review.md`,
+   generated artifacts `skill-card.md`, `README.md`, `card.json`, `card-review.md`,
    `scan.json`, `report.json`, `report.sarif` (so the hash never references
-   itself), the authored governance sidecar `card.authored.yaml` (governance is
+   itself; `README.md`, like `skill-card.md`, is a rendered doc view of the skill
+   produced from `card.json` by a downstream README cascade, not source), the
+   authored governance sidecar `card.authored.yaml` (governance is
    overlay, not the code the hash describes), the metrics harness output
    `evals/evals.json` (run provenance + the results block, rewritten with a fresh
    date every run — so populating or re-running metrics never moves the

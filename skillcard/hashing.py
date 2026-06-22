@@ -2,7 +2,7 @@
 
 ``content_hash`` is a deterministic SHA256 over the skill's *source* files, so a
 card can declare exactly which bytes it describes. It deliberately excludes the
-generated card and scan artifacts (``skill-card.md``, ``card.json``,
+generated card and scan artifacts (``skill-card.md``, ``README.md``, ``card.json``,
 ``scan.json``, ``report.json``, ``report.sarif``) so the hash never depends on
 itself, plus the authored governance sidecar (``card.authored.yaml``) so editing
 status or a finding decision never moves the *code*-identity hash, plus the eval
@@ -29,6 +29,10 @@ import hashlib
 from pathlib import Path
 
 # Generated artifacts (would make the hash self-referential) and editor/VCS noise.
+# ``README.md`` and ``skill-card.md`` are rendered doc views of the skill (produced
+# from ``card.json`` by a downstream cabinet's README cascade), not source, so they
+# stay out of the hash; without excluding ``README.md`` here, adding a per-skill
+# ``README.md`` would move every carded skill's ``content_hash``.
 # ``report.json`` and ``scan.json`` are both names the SkillSpector JSON pass may
 # write into a skill dir; ``card-review.md`` is the generator's sign-off
 # checklist; ``card.authored.yaml`` is the authored governance overlay (status,
@@ -42,6 +46,7 @@ from pathlib import Path
 EXCLUDE_NAMES = frozenset(
     {
         "skill-card.md",
+        "README.md",
         "card.json",
         "card-review.md",
         "card.authored.yaml",

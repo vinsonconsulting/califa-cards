@@ -18,6 +18,8 @@ def test_scan_report_artifacts_excluded(tmp_path):
     # The generated card and its review checklist are excluded too.
     (tmp_path / "card.json").write_text("{}", encoding="utf-8")
     (tmp_path / "skill-card.md").write_text("---\n---\n", encoding="utf-8")
+    # README.md is a rendered doc view (a cabinet's README cascade), excluded like skill-card.md.
+    (tmp_path / "README.md").write_text("# demo skill\n", encoding="utf-8")
     (tmp_path / "card-review.md").write_text("# review\n", encoding="utf-8")
     # The authored governance sidecar is excluded: status/finding decisions are
     # overlay data, not the code the hash describes.
