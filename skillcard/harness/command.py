@@ -79,6 +79,13 @@ def run_eval_command(args) -> int:
         func_out = run_functional(
             skill_dir, model=args.model, timeout=max(args.timeout, 300), best_of=best_of
         )
+        if func_out:
+            print(f"  eval_pass_rate={func_out['eval_pass_rate']:.3f} "
+                  f"task_completion={func_out['tasks_passed']}")
+            for t in func_out.get("per_task", []):
+                mark = "ok  " if t["passed"] == t["total"] else "MISS"
+                print(f"    [{mark}] {t['id']}: {t['passed']}/{t['total']} "
+                      f"(pass_rate={t['pass_rate']:.3f})")
 
     out_dir = Path(args.out) if args.out else skill_dir / "evals"
     today = datetime.date.today().isoformat()
