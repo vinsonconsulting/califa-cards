@@ -12,15 +12,6 @@ triggers on, how well it scores, what it is allowed to touch, and whether a
 security scanner cleared it. Califa Cards is the standard for that label plus
 the tooling that produces and enforces it.
 
-## ⚓ The Califa lineage
-
-California is named for Queen Califa, the warrior ruler of a mythical island
-from a 1510 Spanish romance. The three points of this project sit on her coast:
-Anthropic in San Francisco, NVIDIA in Santa Clara, and this repo's author in
-Livermore. Claude writes and validates the cards, NVIDIA's SkillSpector scans
-them, and Califa is the standard that ties the two together. The name is a small
-monument to the geography of the supply chain.
-
 ## 🧭 Framework versus cards
 
 There are two kinds of thing in this world, and Califa is the first kind.
