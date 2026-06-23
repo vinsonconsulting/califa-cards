@@ -16,7 +16,8 @@ Subcommands:
 * ``optimize``  optimize a skill's description via the trigger-eval loop, then apply
                 the proposed description to ``SKILL.md`` on accept (a reviewed update,
                 since it moves ``content_hash``). Spends tokens; never in ``make check``.
-* ``badges``    (v2) emit shields.io endpoint JSON from a card. Stub.
+* ``badges``    emit shields.io endpoint JSON from a card.json, one badge per
+                metric (scan, trigger, tasks, signed, card). SPEC.md section F.
 """
 
 from __future__ import annotations
@@ -164,6 +165,49 @@ def _cmd_review(skill_dir: str) -> int:
     return rv.review(skill_dir)
 
 
+def _cmd_badges(skill_dir: str, metric: str, out: str) -> int:
+    """Emit shields.io endpoint JSON from a skill's ``card.json`` (SPEC.md F).
+
+    Prints the badge payload to stdout, or, with ``--out DIR``, writes one
+    ``<metric>.json`` per badge into DIR. DIR must be outside the skill source:
+    trigger/tasks/signed badge files are not in the ``content_hash`` exclusion
+    list, so writing them into the skill dir would move its ``content_hash``, and
+    a ``card.json`` badge would clobber the manifest.
+    """
+
+    from skillcard import badges  # noqa: PLC0415
+
+    card_path = Path(skill_dir) / "card.json"
+    if not card_path.exists():
+        print(f"FAIL: {card_path}: no card.json (run `skillcard build` first)")
+        return 1
+    card = load_card(str(card_path))
+
+    payload = badges.all_badges(card) if metric == "all" else badges.badge(card, metric)
+
+    if out == "-":
+        print(json.dumps(payload, indent=2))
+        return 0
+
+    out_dir = Path(out).resolve()
+    src = Path(skill_dir).resolve()
+    if out_dir == src or src in out_dir.parents:
+        print(
+            f"FAIL: --out {out_dir} is inside the skill source {src}; writing badge "
+            f"files there would move its content_hash"
+        )
+        return 1
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    files = badges.all_badges(card) if metric == "all" else {metric: payload}
+    for name, data in files.items():
+        (out_dir / f"{name}.json").write_text(
+            json.dumps(data, indent=2) + "\n", encoding="utf-8"
+        )
+    print(f"OK: wrote {len(files)} badge file(s) to {out_dir}")
+    return 0
+
+
 def _cmd_stub(name: str) -> int:
     print(
         f"skillcard {name}: not implemented in v0. Planned for v2 "
@@ -305,7 +349,20 @@ def main(argv: list[str] | None = None) -> int:
     o.add_argument("--workspace-base", default=None, help=argparse.SUPPRESS)
     _add_resilience_flags(o)
 
-    sub.add_parser("badges", help="(v2) emit shields.io endpoint JSON from a card")
+    bd = sub.add_parser("badges", help="emit shields.io endpoint JSON from a card.json")
+    bd.add_argument("skill_dir", help="skill directory containing card.json")
+    bd.add_argument(
+        "--metric",
+        choices=["scan", "trigger", "tasks", "signed", "card", "all"],
+        default="all",
+        help="which badge to emit (default: all)",
+    )
+    bd.add_argument(
+        "--out",
+        default="-",
+        help="'-' for stdout (default), or a directory OUTSIDE the skill source "
+        "to write <metric>.json badge files into",
+    )
 
     args = parser.parse_args(argv)
     if args.cmd == "validate":
@@ -326,6 +383,8 @@ def main(argv: list[str] | None = None) -> int:
         from skillcard.harness.optimize import run_optimize_command  # noqa: PLC0415
 
         return run_optimize_command(args)
+    if args.cmd == "badges":
+        return _cmd_badges(args.skill_dir, args.metric, args.out)
     return _cmd_stub(args.cmd)
 
 
