@@ -21,6 +21,7 @@ Functional modules:
 
 The deterministic generator (discover -> build -> render -> review) landed in
 v0.3.0; v0.4.0 moved authored governance to a ``card.authored.yaml`` sidecar so
-it no longer affects ``content_hash``; v0.5.0 added the ``eval`` metrics harness.
-See SPEC.md sections C, D, and H.
+it no longer affects ``content_hash``; v0.5.0 added the ``eval`` metrics harness;
+v0.8.0 implemented the ``badges`` generator (``card.json`` -> shields.io endpoint
+JSON, one badge per metric). See SPEC.md sections C, D, and H.
 """
