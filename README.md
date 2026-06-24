@@ -25,7 +25,7 @@ There are two kinds of thing in this world, and Califa is the first kind.
   governance sidecar. The cabinets consume Califa as a development dependency;
   they do not vendor a copy of the rules.
 
-`jims-filing-cabinet-of-claude-skills` (public) and
+`claude-skill-foundry` (public) and
 `jims-secret-cabinet-of-mysteries` (private) are the first two consumers.
 
 ## What is functional in v0
