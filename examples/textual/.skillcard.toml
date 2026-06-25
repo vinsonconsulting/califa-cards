@@ -3,7 +3,7 @@
 # cabinet this sits at the repo root and is shared by every skill.
 owner = "@vinsonconsulting"
 tier = "public"
-url = "https://github.com/vinsonconsulting/jims-filing-cabinet-of-claude-skills"
+url = "https://github.com/vinsonconsulting/claude-skill-foundry"
 license = "MIT"
 # The SkillSpector pin the project gates against (pyproject's scan extra). Takes
 # precedence over the report's self-reported version for scan.tool.

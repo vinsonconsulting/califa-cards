@@ -50,7 +50,7 @@ SIDECAR = {
 REPO_CFG = (
     'owner = "@vinsonconsulting"\n'
     'tier = "public"\n'
-    'url = "https://github.com/vinsonconsulting/jims-filing-cabinet-of-claude-skills"\n'
+    'url = "https://github.com/vinsonconsulting/claude-skill-foundry"\n'
     'license = "MIT"\n'
     'scan_tool = "skillspector@a5092dd"\n'
 )
@@ -119,7 +119,7 @@ def test_discover_assembles_a_valid_stable_card(tmp_path):
     assert card.name == "textual"
     assert card.summary == "Build and debug Python TUIs with Textual."
     assert card.owner == "@vinsonconsulting"
-    assert card.repo.url.endswith("jims-filing-cabinet-of-claude-skills")
+    assert card.repo.url.endswith("claude-skill-foundry")
     assert card.permissions.shell is True  # security surface read from SKILL.md identity
     assert card.scan.tool == "skillspector@a5092dd"
     assert card.scan.score == 12 and card.scan.severity == "LOW"

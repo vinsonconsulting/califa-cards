@@ -5,10 +5,10 @@ summary: Build and debug Python TUIs with Textual, covering widgets, reactive at
 owner: '@vinsonconsulting'
 repo:
   tier: public
-  url: https://github.com/vinsonconsulting/jims-filing-cabinet-of-claude-skills
+  url: https://github.com/vinsonconsulting/claude-skill-foundry
 license: MIT
 source_commit: 9f3a1c2
-content_hash: sha256:3d6d0e27c09198ac9da3808f0cea6e5da388330af9cb682ecac82f202af3d6d2
+content_hash: sha256:17b8ade101388fea6875c68cf6971739f2d556da6c9fc3d372d87f91588fab70
 description: Build, style, and debug terminal user interfaces in Python with Textual. Use when the user mentions Textual, a TUI, App/Widget/Screen subclasses, reactive attributes, TCSS or Textual CSS, `textual run`, `textual console`, or compose(). Do NOT use for plain CLI argument parsing (use click-cli), Rich-only static output (use rich-render), or curses (use curses).
 triggers:
   positive:
