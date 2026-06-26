@@ -1,3 +1,7 @@
+<p align="center">
+  <img src=".github/assets/hero-card.svg" alt="Califa Cards rendered as a skill card — the standard applied to itself: identity, when-to-use, output, dependencies, a colour-scale legend, and a LOW self-scan" width="720">
+</p>
+
 # Califa Cards: A Portable, Versioned Format for Documenting/Scoring Claude Skills
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)

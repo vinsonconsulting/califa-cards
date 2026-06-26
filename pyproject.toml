@@ -47,9 +47,11 @@ line-length = 100
 select = ["E", "F", "I", "UP", "B"]
 
 [tool.ruff.lint.per-file-ignores]
-# scorecard.py embeds an SVG export template whose @font-face CDN URLs are single
-# immutable tokens that cannot wrap; everything else in the file stays linted.
+# scorecard.py and the README hero generator both embed an SVG export template
+# whose @font-face CDN URLs are single immutable tokens that cannot wrap;
+# everything else in those files stays linted.
 "skillcard/scorecard.py" = ["E501"]
+".github/assets/generate_hero_card.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["schema", "skillcard"]
