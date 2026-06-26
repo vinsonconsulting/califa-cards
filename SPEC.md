@@ -163,8 +163,9 @@ Module responsibilities:
 | `gate.py` | SARIF and JSON security policy enforcement. | functional |
 | `hashing.py` | `content_hash` over the skill's sorted source manifest. | functional |
 | `harness/` | The harness `skillcard eval` and `skillcard optimize` run: namespace-isolated trigger runner (ported fork) + functional orchestrator (grades the on-disk artifact), assembled into `evals/evals.json`; plus the ported description optimizer (`optimize.py`). Live `claude`; never in `make check`. | functional |
-| `badges.py` | Map `card.json` to shields.io endpoint JSON per metric. | stub |
-| `cli.py` | The `skillcard` entrypoint: validate (canonical `card.json` schema + `content_hash`), gate, hash, build, review, eval, optimize; badges stub. | functional |
+| `badges.py` | Map `card.json` to shields.io endpoint JSON per metric. | functional |
+| `scorecard.py` | Render `card.json` to a deterministic SVG scorecard (Textual, headless via `export_screenshot`); degrades on sparse cards. Needs the `scorecard` extra. | functional |
+| `cli.py` | The `skillcard` entrypoint: validate (canonical `card.json` schema + `content_hash`), gate, hash, build, review, eval, optimize, badges, scorecard. | functional |
 | `schema.py` (in `schema/`) | The pydantic model; single source of truth. | functional |
 
 The generator runs after the description optimizer, so `description` and the

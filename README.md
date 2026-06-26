@@ -46,7 +46,8 @@ enforce it is the work this repo represents.
   security-score policy), `hash` (compute the content hash), `review` (block until
   human-authored fields are signed off), `eval` (run the triggering and functional
   metrics harness), `optimize` (tune a skill's description against its trigger set),
-  and `badges` (emit shields.io endpoint JSON per metric).
+  `badges` (emit shields.io endpoint JSON per metric), and `scorecard` (render a
+  deterministic SVG scorecard from a card).
 - **A worked example.** [`examples/textual/`](examples/textual/) cards a real skill
   end to end: the authored `SKILL.md` and `card.authored.yaml` inputs, and the
   generated `card.json` and `skill-card.md`. A regression test regenerates it byte
@@ -97,15 +98,16 @@ The metrics harness (`skillcard eval` and `skillcard optimize`) makes live `clau
 calls and spends tokens, so both stay out of the standard `make check` gate and
 require an explicit `--i-understand-this-spends-tokens` flag.
 
-## Maturity (v0.8.0, pre-1.0)
+## Maturity (v0.9.0, pre-1.0)
 
 | Piece | State |
 | --- | --- |
 | Schema and validator | Built |
-| `skillcard` CLI (validate / build / gate / hash / review / eval / optimize / badges) | Built |
+| `skillcard` CLI (validate / build / gate / hash / review / eval / optimize / badges / scorecard) | Built |
 | Security-score gate | Built |
 | Metrics harness (triggering + functional) | Built; spends tokens, runs outside `make check` |
 | Badges (shields.io endpoints) | Built |
+| SVG scorecard renderer (Textual, headless) | Built; needs the `scorecard` extra |
 | Discover Worker (sections G, H) | Specified; design stub, not yet implemented |
 
 `make check` is the gate for every change: ruff lint, the pytest suite (schema,
