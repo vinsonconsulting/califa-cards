@@ -22,9 +22,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install package with dev + scan extras
+      - name: Install package with dev + scan + scorecard extras
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev,scan]"
+          pip install -e ".[dev,scan,scorecard]"
       - name: make check (lint + tests + gated self-scan)
         run: make check

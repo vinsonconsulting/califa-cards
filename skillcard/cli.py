@@ -18,12 +18,15 @@ Subcommands:
                 since it moves ``content_hash``). Spends tokens; never in ``make check``.
 * ``badges``    emit shields.io endpoint JSON from a card.json, one badge per
                 metric (scan, trigger, tasks, signed, card). SPEC.md section F.
+* ``scorecard`` render a deterministic SVG scorecard from a card.json (Textual,
+                headless). Needs the ``scorecard`` extra; degrades on sparse cards.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -208,6 +211,44 @@ def _cmd_badges(skill_dir: str, metric: str, out: str) -> int:
     return 0
 
 
+def _cmd_scorecard(skill_dir: str, out: str) -> int:
+    """Render a skill's ``card.json`` to a deterministic SVG scorecard.
+
+    Prints the SVG to stdout (``--out -``), or writes it to a file path. Like
+    ``badges``, the output path must be OUTSIDE the skill source: ``scorecard.svg``
+    is not in the ``content_hash`` exclusion list, so writing it into the skill
+    dir would move the skill's hash. Requires the ``scorecard`` extra (Textual).
+    """
+
+    from skillcard import scorecard  # noqa: PLC0415
+
+    card_path = Path(skill_dir) / "card.json"
+    if not card_path.exists():
+        print(f"FAIL: {card_path}: no card.json (run `skillcard build` first)")
+        return 1
+    card = load_card(str(card_path))
+    SkillCard.model_validate(card)
+    svg = scorecard.render_card(card)
+
+    if out == "-":
+        sys.stdout.write(svg)
+        return 0
+
+    out_path = Path(out).resolve()
+    src = Path(skill_dir).resolve()
+    if out_path == src or src in out_path.parents:
+        print(
+            f"FAIL: --out {out_path} is inside the skill source {src}; writing the "
+            f"scorecard there would move its content_hash"
+        )
+        return 1
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    out_path.write_text(svg, encoding="utf-8")
+    print(f"OK: wrote {out_path}")
+    return 0
+
+
 def _cmd_stub(name: str) -> int:
     print(
         f"skillcard {name}: not implemented in v0. Planned for v2 "
@@ -364,6 +405,15 @@ def main(argv: list[str] | None = None) -> int:
         "to write <metric>.json badge files into",
     )
 
+    sc = sub.add_parser("scorecard", help="render an SVG scorecard from a card.json")
+    sc.add_argument("skill_dir", help="skill directory containing card.json")
+    sc.add_argument(
+        "--out",
+        default="-",
+        help="'-' for stdout (default), or a file path OUTSIDE the skill source "
+        "to write the SVG into (writing inside the skill dir moves its content_hash)",
+    )
+
     args = parser.parse_args(argv)
     if args.cmd == "validate":
         return _cmd_validate(args.path)
@@ -385,6 +435,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_optimize_command(args)
     if args.cmd == "badges":
         return _cmd_badges(args.skill_dir, args.metric, args.out)
+    if args.cmd == "scorecard":
+        return _cmd_scorecard(args.skill_dir, args.out)
     return _cmd_stub(args.cmd)
 
 

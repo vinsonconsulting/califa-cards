@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "califa-cards"
-version = "0.8.0"
+version = "0.9.0"
 description = "Califa Cards: A Comprehensive Skill Card Standard and Testing Framework"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -25,6 +25,12 @@ dev = ["ruff>=0.5", "pytest>=8"]
 # in scan.tool). Install with: pip install -e ".[scan]"  (needs git + network).
 scan = [
   "skillspector @ git+https://github.com/NVIDIA/SkillSpector@a5092dd9b9521ff57a9b53612bb129ce78019002",
+]
+# Headless SVG scorecard renderer (skillcard scorecard / skillcard.scorecard).
+# Textual is kept out of the core deps so validate/gate/badges stay light; only
+# the asset step needs it. Install with: pip install -e ".[scorecard]"
+scorecard = [
+  "textual==8.2.7",
 ]
 
 [project.scripts]
