@@ -122,3 +122,7 @@ make check    # ruff lint + pytest + a clean SkillSpector self-scan
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+---
+
+<p align="center"><img src=".github/assets/queen-califa-footer.jpg" alt="Queen Calafia rides a California condor above the Big Sur coast — the namesake of California, and of Califa Cards" width="100%"></p>
