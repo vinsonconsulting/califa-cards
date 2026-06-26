@@ -1,4 +1,4 @@
-# Califa Cards
+# Califa Cards: A Portable, Versioned Format for Documenting/Scoring Claude Skills
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![build](https://img.shields.io/badge/build-make%20check-brightgreen.svg)](Makefile)
@@ -8,16 +8,16 @@
 A specification and toolkit for **Skill Cards**: a portable, versioned format for
 documenting and scoring Claude Skills, plus the tooling that produces and enforces it.
 
-A Skill Card is the nutrition label for an agent skill. It records who made the
+Think of a Skill Card as the nutrition label for an agent skill. It records who made the
 skill, what it triggers on, how it scores on a set of evaluation metrics, what it
 is allowed to touch, and whether a security scanner cleared it. Califa Cards
 defines that label and ships the tooling that generates and validates it.
 
-## Why a card format
+## Why a Card Format?
 
 A skill is easy to write and hard to compare. Two skills that claim the same job
 can differ in what fires them, in what they are permitted to do, and in how often
-they actually finish the task. A Skill Card pins that down in one structured file.
+they actually finish the task. A Skill Card attempts to pin that down in one structured file.
 Because the card is versioned and machine-readable, a skill's triggering behavior,
 its security posture, and its task-completion record can be tracked over time and
 compared across a whole library.
