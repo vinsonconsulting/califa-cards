@@ -1,13 +1,13 @@
-<p align="center">
-  <img src=".github/assets/hero-card.svg" alt="Califa Cards rendered as a skill card — the standard applied to itself: identity, when-to-use, output, dependencies, a colour-scale legend, and a LOW self-scan" width="720">
-</p>
-
 # Califa Cards: A Portable, Versioned Format for Documenting/Scoring Claude Skills
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![build](https://img.shields.io/badge/build-make%20check-brightgreen.svg)](Makefile)
 [![python](https://img.shields.io/badge/python-3.12%2B-blue.svg)](pyproject.toml)
 [![status](https://img.shields.io/badge/status-pre--1.0-yellow.svg)](SPEC.md)
+
+<p align="center">
+  <img src=".github/assets/hero-card.svg" alt="An example Skill Card — Califa Cards rendered in its own format: identity, when-to-use, output, dependencies, a colour-scale legend, and a LOW self-scan" width="720">
+</p>
 
 A specification and toolkit for **Skill Cards**: a portable, versioned format for
 documenting and scoring Claude Skills, plus the tooling that produces and enforces it.
