@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "califa-cards"
-version = "0.9.0"
+version = "0.9.1"
 description = "Califa Cards: A Comprehensive Skill Card Standard and Testing Framework"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -45,6 +45,11 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+# scorecard.py embeds an SVG export template whose @font-face CDN URLs are single
+# immutable tokens that cannot wrap; everything else in the file stays linted.
+"skillcard/scorecard.py" = ["E501"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["schema", "skillcard"]

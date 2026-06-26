@@ -98,7 +98,7 @@ The metrics harness (`skillcard eval` and `skillcard optimize`) makes live `clau
 calls and spends tokens, so both stay out of the standard `make check` gate and
 require an explicit `--i-understand-this-spends-tokens` flag.
 
-## Maturity (v0.9.0, pre-1.0)
+## Maturity (v0.9.1, pre-1.0)
 
 | Piece | State |
 | --- | --- |

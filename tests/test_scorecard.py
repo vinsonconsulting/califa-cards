@@ -94,6 +94,16 @@ def test_render_is_deterministic():
     assert scorecard.render_card(card) == scorecard.render_card(card)
 
 
+def test_no_terminal_window_chrome():
+    # The card must not be wrapped in Rich's fake macOS terminal window: no
+    # traffic-light dots, no title-bar text class, no window-frame offset.
+    svg = scorecard.render_card(_stable_card())
+    assert "<circle" not in svg  # the three traffic-light dots
+    assert "#ff5f57" not in svg and "#febc2e" not in svg and "#28c840" not in svg
+    assert "-title" not in svg  # the title-bar text style class
+    assert 'viewBox="0 0 ' in svg  # viewBox is the content box, no chrome offset
+
+
 def test_near_miss_is_omitted_when_absent():
     # Dropping near_miss_precision must not raise (it is an optional row).
     card = _stable_card()

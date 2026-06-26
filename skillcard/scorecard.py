@@ -4,11 +4,15 @@ Maps ``card.json`` to a single bordered "skill scorecard" graphic: identity
 (name/version/status), summary, and the four quality lenses (triggering, quality,
 cost, security) plus a provenance footer. The card is composed with Rich
 renderables and rendered headless through Textual's pilot
-(:meth:`textual.app.App.run_test`) so :meth:`App.export_screenshot` can emit the
-SVG with no TTY -- the one thing a CI asset step needs. Output is deterministic
-(byte-identical across runs) because the pilot disables animation and
-``export_screenshot`` emits stable element ids and a fixed embedded font, so a
-committed scorecard never churns while its ``card.json`` is unchanged.
+(:meth:`textual.app.App.run_test`) so the screen can be exported to SVG with no
+TTY -- the one thing a CI asset step needs. The export goes through Rich's
+:meth:`rich.console.Console.export_svg` with a chrome-free template
+(:data:`_CARD_SVG_FORMAT`) rather than Textual's ``export_screenshot``, which
+would wrap every card in a fake macOS terminal window (frame, title bar, and
+traffic-light dots) -- redundant on top of the card's own border. Output is
+deterministic (byte-identical across runs) because the pilot disables animation
+and the export emits stable element ids and a fixed embedded font, so a committed
+scorecard never churns while its ``card.json`` is unchanged.
 
 A single colour-threshold config (:data:`THRESHOLDS`) drives every value's
 colour, mirroring :mod:`skillcard.badges` -- same shape (a severity map plus
@@ -31,9 +35,10 @@ defined in one place.
 from __future__ import annotations
 
 import asyncio
+import io
 from typing import Any
 
-from rich.console import Group
+from rich.console import Console, Group
 from rich.table import Table
 from rich.text import Text
 
@@ -77,6 +82,84 @@ THRESHOLDS = {
 SIM_WIDTH = 66
 MEASURE_HEIGHT = 60
 V_MARGIN = 2
+
+# A chrome-free SVG template for Rich's ``Console.export_svg``. Textual's
+# ``export_screenshot`` calls ``export_svg`` with Rich's default format, which
+# wraps the output in a fake macOS terminal window (a rounded frame, a title bar,
+# and three traffic-light dots) -- redundant on top of the card's own border and
+# reads as a screenshot artifact. This template keeps Rich's font + cell layout
+# but drops the chrome: the viewBox is the content box (``terminal_width`` x
+# ``terminal_height``), the matrix sits at the origin, and the card's own
+# ``$surface`` background (painted per cell by Textual) is the only backdrop. The
+# braces Rich fills are single; literal CSS braces are doubled for ``str.format``.
+_CARD_SVG_FORMAT = """<svg class="skill-scorecard" viewBox="0 0 {terminal_width} {terminal_height}" xmlns="http://www.w3.org/2000/svg">
+    <style>
+    @font-face {{
+        font-family: "Fira Code";
+        src: local("FiraCode-Regular"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Regular.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Regular.woff") format("woff");
+        font-style: normal;
+        font-weight: 400;
+    }}
+    @font-face {{
+        font-family: "Fira Code";
+        src: local("FiraCode-Bold"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff2/FiraCode-Bold.woff2") format("woff2"),
+                url("https://cdnjs.cloudflare.com/ajax/libs/firacode/6.2.0/woff/FiraCode-Bold.woff") format("woff");
+        font-style: bold;
+        font-weight: 700;
+    }}
+    .{unique_id}-matrix {{
+        font-family: Fira Code, monospace;
+        font-size: {char_height}px;
+        line-height: {line_height}px;
+        font-variant-east-asian: full-width;
+    }}
+    {styles}
+    </style>
+    <defs>
+    <clipPath id="{unique_id}-clip-terminal">
+      <rect x="0" y="0" width="{terminal_width}" height="{terminal_height}" />
+    </clipPath>
+    {lines}
+    </defs>
+    <g clip-path="url(#{unique_id}-clip-terminal)">
+    {backgrounds}
+    <g class="{unique_id}-matrix">
+    {matrix}
+    </g>
+    </g>
+</svg>
+"""
+
+
+def _export_clean(app) -> str:
+    """Export the running app's screen to SVG with no terminal-window chrome.
+
+    Mirrors :meth:`textual.app.App.export_screenshot` (build a recording Rich
+    console, print the screen render), but exports through
+    :meth:`rich.console.Console.export_svg` with :data:`_CARD_SVG_FORMAT` instead
+    of Rich's default, so the result is just the card -- no window frame, title
+    bar, or traffic-light dots. ``title=""`` keeps Rich's deterministic
+    content-hashed ``unique_id`` stable across runs.
+    """
+    width, height = app.size
+    console = Console(
+        width=width,
+        height=height,
+        file=io.StringIO(),
+        force_terminal=True,
+        color_system="truecolor",
+        record=True,
+        legacy_windows=False,
+        safe_box=False,
+    )
+    screen_render = app.screen._compositor.render_update(
+        full=True, screen_stack=app.app._background_screens, simplify=False
+    )
+    console.print(screen_render)
+    return console.export_svg(title="", code_format=_CARD_SVG_FORMAT)
 
 
 def _band_color(value: float, bands: list[tuple[float, str]]) -> str:
@@ -317,7 +400,7 @@ def _build_app(card: dict[str, Any], *, rollup: bool = False):
     return _Scorecard()
 
 
-async def _render_async(payload: dict[str, Any], title: str, *, rollup: bool) -> str:
+async def _render_async(payload: dict[str, Any], *, rollup: bool) -> str:
     # Pass 1 -- measure: lay the card out on a tall canvas and read its height,
     # so the final SVG is cropped to the content rather than floating in dead
     # space. Pass 2 -- render: re-render on a canvas sized to the card + margin.
@@ -328,7 +411,7 @@ async def _render_async(payload: dict[str, Any], title: str, *, rollup: bool) ->
     app = _build_app(payload, rollup=rollup)
     async with app.run_test(size=(SIM_WIDTH, card_height + V_MARGIN)) as pilot:
         await pilot.pause()
-        return app.export_screenshot(title=title)
+        return _export_clean(app)
 
 
 def render_card(card: dict[str, Any]) -> str:
@@ -340,8 +423,7 @@ def render_card(card: dict[str, Any]) -> str:
     Requires the ``scorecard`` extra (``pip install califa-cards[scorecard]``);
     Textual is imported lazily so the rest of the package needs it only here.
     """
-    title = f"{card.get('name', 'skill')} @ {card.get('version', '')}".strip()
-    return asyncio.run(_render_async(card, title, rollup=False))
+    return asyncio.run(_render_async(card, rollup=False))
 
 
 def render_rollup(summary: dict[str, Any]) -> str:
@@ -354,5 +436,4 @@ def render_rollup(summary: dict[str, Any]) -> str:
     here -- one home for the SVG layout. Never raises; an empty corpus renders
     a valid empty posture.
     """
-    title = summary.get("title", "scorecards")
-    return asyncio.run(_render_async(summary, title, rollup=True))
+    return asyncio.run(_render_async(summary, rollup=True))
